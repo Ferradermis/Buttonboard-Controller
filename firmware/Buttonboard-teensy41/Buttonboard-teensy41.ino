@@ -51,10 +51,12 @@ const uint8_t _buttonPins[] = {
 
 const uint8_t numButtons = sizeof(_buttonPins) / sizeof(_buttonPins[0]);
 
+//arrays to group related buttons
+//reef buttons, one will be lit at a time
 uint8_t _reefPostitionButtons[] = {
   0,1,2,3,4,5,6,7,8,9,10,11
 };
-
+//level buttons, one at a time once more
 uint8_t _reefLevelButtons[] = {
   12,13,14,15
 };

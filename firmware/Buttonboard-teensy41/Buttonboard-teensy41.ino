@@ -43,6 +43,8 @@
 #define PIN_LEDS 37
 #define NUM_LEDS 24
 
+#define TEAM_NUMBER 6574
+
 const uint8_t _buttonPins[] = {
   PIN_BTN_01,PIN_BTN_02,PIN_BTN_03,PIN_BTN_04,PIN_BTN_05,PIN_BTN_06,
   PIN_BTN_07,PIN_BTN_08,PIN_BTN_09,PIN_BTN_10,PIN_BTN_11,PIN_BTN_12,
@@ -67,6 +69,8 @@ Adafruit_NeoPixel pixels(NUM_LEDS, PIN_LEDS, NEO_GRB + NEO_KHZ800);
 
 Bounce buttons[numButtons];
 
+// Global objects
+FRCNetworkTables nt(TEAM_NUMBER);
 
 
 void setup() {
@@ -83,10 +87,26 @@ void setup() {
 
   test_all_pixels();
 
+  if (nt.begin()) {
+        Serial.println("Ethernet initialized successfully");
+        Serial.println("Local IP: " + nt.formatIPAddress(Ethernet.localIP()));
+        
+        // Attempt initial connection
+        if (nt.connect()) {
+            Serial.println("Connected to robot!");
+        } else {
+            Serial.println("Initial connection failed - will retry automatically");
+        }
+    } else {
+        Serial.println("Failed to initialize Ethernet!");
+    }
+
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
+
+  nt.update();
 
 
   delay(5);

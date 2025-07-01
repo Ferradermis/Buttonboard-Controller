@@ -98,6 +98,9 @@ public:
     void printStatus();
     void enableDebug(bool enable = true) { _debug = enable; }
     
+    //utility
+    String formatIPAddress(IPAddress ip);
+
 private:
     // Network configuration
     uint16_t _robotNumber;
@@ -163,7 +166,7 @@ private:
     
     // Utility methods
     void debugPrint(const String& msg);
-    String formatIPAddress(IPAddress ip);
+    
 };
 
 // Implementation

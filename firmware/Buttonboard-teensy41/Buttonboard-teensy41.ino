@@ -1,5 +1,6 @@
 #include <Adafruit_NeoPixel.h>
 #include <Bounce2.h>
+#include "./FRCNetworkTables.h"
 
 #define PIN_BTN_01 0
 #define PIN_BTN_02 1

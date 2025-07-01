@@ -39,7 +39,7 @@
 #define PIN_GPIO_4 41
 
 #define PIN_LED 13
-#define PIN_LEDS 37
+#define PIN_LEDS 1
 #define NUM_LEDS 24
 
 const uint8_t _buttonPins[] = {
@@ -93,40 +93,37 @@ void loop() {
 
 
 void test_all_pixels(){
-  uint8_t _black= Adafruit_NeoPixel::Color(0,0,0);
-  uint8_t _red=   Adafruit_NeoPixel::Color(255,0,0);
-  uint8_t _green= Adafruit_NeoPixel::Color(0,255,0);
-  uint8_t _blue=  Adafruit_NeoPixel::Color(0,0,255);
+
 
   for(int i=0;i<NUM_LEDS;i++){
-    pixels.setPixelColor(i,_red);
+    pixels.setPixelColor(i,255,0,0);
     pixels.show();
     delay(60);
   }
   for(int i=0;i<NUM_LEDS;i++){
-    pixels.setPixelColor(i,_black);
+    pixels.setPixelColor(i,0,0,0);
     pixels.show();
     delay(60);
   }
 
   for(int i=0;i<NUM_LEDS;i++){
-    pixels.setPixelColor(i,_green);
+    pixels.setPixelColor(i,0,255,0);
     pixels.show();
     delay(60);
   }
   for(int i=0;i<NUM_LEDS;i++){
-    pixels.setPixelColor(i,_black);
+    pixels.setPixelColor(i,0,0,0);
     pixels.show();
     delay(60);
   }
   for(int i=0;i<NUM_LEDS;i++){
-    pixels.setPixelColor(i,_blue);
+    pixels.setPixelColor(i,0,0,255);
     pixels.show();
     delay(60);
   }
 
   for(int i=0;i<NUM_LEDS;i++){
-    pixels.setPixelColor(i,_black);
+    pixels.setPixelColor(i,0,0,0);
     pixels.show();
     delay(60);
   }

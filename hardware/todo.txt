@@ -1,0 +1,7 @@
+Add ethernet jack 
+add USB port to board
+add reset MCU pins/button
+add USB Host port
+instead of 4 GPIOs, add 4 more buttons (kids got to 24 FAST)
+
+

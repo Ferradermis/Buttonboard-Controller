@@ -7,7 +7,48 @@ t_total=12.56;
 l_tab=4;
 
 
-main();
+//main();
+
+cap();
+
+//clip_shape();
+
+module cap(){
+    difference(){
+        union(){
+            hull(){
+                cylinder(d=13,h=1);
+                translate([-8,-8,4])
+                    rcube([16,16,5.5]);
+            }
+        }
+        union(){
+            translate([-6.75,-6.75,4])
+                    rcube([13.5,13.5,15]);
+
+            translate([-1.1,-3.3,0])
+                cube([2.2,6.6,14]);
+
+            translate([0,-3.5,4])
+                cube([10,7,10]);
+            
+        }
+    }
+}
+
+
+module clip_shape(){
+    translate([d_minor/2-1.6,1])
+    polygon(points=[
+        [0,0],
+        [1.6,0],
+        [1.6,8.5],
+        [2.81,8.5],
+        [1.6,11],
+        [0,11]
+
+    ]);
+}
 
 module main(){
     difference(){
@@ -42,7 +83,7 @@ module main(){
     difference(){
         union(){
             translate([-6.25,-6.25,0])
-            cube([12.5,12.5,6]);
+                rcube([12.5,12.5,6]);
         }
         union(){
             translate([0,-3.5,4])
@@ -58,7 +99,25 @@ module main(){
                 
         }
     }
+
+    intersection(){
+        translate([-20,-2.5,0])
+            cube([40,5,40]);
+        rotate_extrude(){
+            clip_shape();
+        }
+    }
     
+}
+
+module rcube(size,r=1){
+    hull(){
+        for(x=[r,size[0]-r])
+            for (y=[r,size[1]-r])
+                translate([x,y,0])
+                    cylinder(r=r,h=size[2]);
+    }
+            
 }
 
 

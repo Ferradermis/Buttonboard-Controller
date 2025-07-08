@@ -2,6 +2,7 @@
 #include <Bounce2.h>
 #include "./FRCNetworkTables.h"
 
+//#region Pin Definitions
 #define PIN_BTN_01 0
 #define PIN_BTN_02 1
 #define PIN_BTN_03 2
@@ -37,11 +38,11 @@
 #define PIN_JOY_ZR 21
 #define PIN_JOY_S1 22
 #define PIN_JOY_S2 23
-
+//#endregion
 
 
 #define PIN_LED 13
-#define PIN_LEDS 1
+#define PIN_LEDS 37
 #define NUM_LEDS 28
 
 #define TEAM_NUMBER 6574

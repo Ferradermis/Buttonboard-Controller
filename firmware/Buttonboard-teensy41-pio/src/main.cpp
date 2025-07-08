@@ -3,7 +3,7 @@
 #include <Bounce2.h>
 #include "FRCNetworkTables.h"
 
-//#region Pin Definitions
+#pragma region Button Pins
 #define PIN_BTN_01 0
 #define PIN_BTN_02 1
 #define PIN_BTN_03 2
@@ -32,14 +32,16 @@
 #define PIN_BTN_26 39
 #define PIN_BTN_27 40
 #define PIN_BTN_28 41
+#pragma endregion
 
+#pragma region Joystick Axis Pins
 #define PIN_JOY_X 14
 #define PIN_JOY_Y 15
 #define PIN_JOY_Z 20
 #define PIN_JOY_ZR 21
 #define PIN_JOY_S1 22
 #define PIN_JOY_S2 23
-//#endregion
+#pragma endregion
 
 
 #define PIN_LED 13
@@ -50,6 +52,7 @@
 
 //definition of void test_all_pixels()
 void test_all_pixels();
+
 
 const uint8_t _buttonPins[] = {
   PIN_BTN_01,PIN_BTN_02,PIN_BTN_03,PIN_BTN_04,PIN_BTN_05,PIN_BTN_06,

@@ -29,6 +29,7 @@
 #include <ArduinoJson.h>
 
 class FRCNetworkTables {
+
 public:
     // Robot connection status
     enum ConnectionStatus {
@@ -168,6 +169,7 @@ private:
     void debugPrint(const String& msg);
     
 };
+
 
 // Implementation
 FRCNetworkTables::FRCNetworkTables(uint16_t robotNumber) {

@@ -45,7 +45,7 @@
 
 
 #define PIN_LED 13
-#define PIN_LEDS 37
+#define PIN_NEOPIXELS 37
 #define NUM_LEDS 28
 
 #define TEAM_NUMBER 6574
@@ -75,7 +75,7 @@ uint8_t _reefLevelButtons[] = {
 };
 
 
-Adafruit_NeoPixel pixels(NUM_LEDS, PIN_LEDS, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel pixels(NUM_LEDS, PIN_NEOPIXELS, NEO_GRB + NEO_KHZ800);
 
 Bounce buttons[numButtons];
 

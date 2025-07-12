@@ -11,6 +11,19 @@ module main(){
             cylinder(d1=od_rim-2*bevel_rim,d2=od_rim,h=bevel_rim);
             translate([0,0,bevel_rim])
                 cylinder(d=od_rim,h=h_rim-bevel_rim);
+
+            //fins
+            intersection(){
+                union(){
+                    for (zr=[0,90])
+                        rotate([0,0,zr])
+                            translate([-od_rim/2,-w_fin/2,h_rim])
+                                cube([od_rim,w_fin,h_fin]);
+                }
+                translate([0,0,h_rim])
+                    cylinder(d1=od_housing+1,d2=id_housing,h=h_fin);
+            }
+
         }
         union(){
             cylinder(d=id_housing,h=h_button_travel);
@@ -30,6 +43,10 @@ module main(){
         }
     }
 
+    
+
+
+    //button guides
     difference(){
         union(){
             intersection(){

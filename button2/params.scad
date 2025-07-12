@@ -13,12 +13,14 @@ od_housing_minor=tpitch;
 od_housing_wings=30;
 id_housing=25;
 h_housing=27;
-
 w_housing_guide=2;
+
+w_fin=1.2;
+h_fin=6;
 
 //button params
 od_button=23.75;
-id_button=22;
+id_button=21.25;
 t_buttonface=2.5;
 bevel_buttonface=2.5;
 h_button=14;
@@ -43,6 +45,11 @@ t_pixel_unit=4.25;
 w_pedestal=12.5;
 h_pedestal=t_pixel_unit + 0.25;
 
+
+
+h_nut=9;
+d_nut=od_housing+10;
+nut_sides=9;
 
 
 module rcube(s,r=1){

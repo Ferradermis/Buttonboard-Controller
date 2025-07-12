@@ -1,17 +1,55 @@
 echo("including params.scad");
 include <./ISOThread.scad>
-$fn=120;
+$fn=117;
 
-
-od_rim=33;
-h_rim=3;
-bevel_rim=1;
+//housing params (including threads)
+thread_tolerance=0.25;
+od_rim=35;
+h_rim=4;
+bevel_rim=2;
 tpitch=2.0;
 od_housing=29;
 od_housing_minor=tpitch;
 od_housing_wings=30;
 id_housing=25;
+h_housing=27;
+
+w_housing_guide=2;
+
+//button params
+od_button=23.75;
+id_button=22;
+t_buttonface=2.5;
+bevel_buttonface=2.5;
+h_button=14;
+h_button_travel=h_button+2;
+w_button_guide=3;
+
+//switch params
+d_switch_key=6;
+h_switch_key=3.5;
+d_switch_neck=7;
+d_switch_body=8;
+d_switch_shoulder=12;
+
+w_wire_notch=d_switch_body-2;
 
 
-od_button=24.5;
 
+w_pixel_board=10.2;
+w_pixel=7;
+t_pixel=1;
+t_pixel_unit=4.25;
+w_pedestal=12.5;
+h_pedestal=t_pixel_unit + 0.25;
+
+
+
+module rcube(s,r=1){
+    hull(){
+        for(x=[r,s[0]-r])
+            for(y=[r,s[1]-r])
+                translate([x,y,0])
+                    cylinder(r=r,h=s[2]);
+    }
+}

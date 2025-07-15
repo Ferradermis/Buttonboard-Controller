@@ -46,7 +46,7 @@
 
 #define PIN_LED 13
 #define PIN_NEOPIXELS 37
-#define NUM_LEDS 28
+#define NUM_LEDS 23
 
 #define TEAM_NUMBER 6574
 
@@ -87,6 +87,7 @@ void setup() {
   // put your setup code here, to run once:
   // Initialize each button
     for (uint8_t i = 0; i < numButtons; i++) {
+      pinMode(_buttonPins[i], INPUT_PULLUP); // Set pin mode to INPUT_PULLUP
         buttons[i].attach(_buttonPins[i], INPUT_PULLUP);
         buttons[i].interval(10); // 10ms debounce interval
     }
@@ -97,6 +98,7 @@ void setup() {
 
   test_all_pixels();
 
+  /*
   if (nt.begin()) {
         Serial.println("Ethernet initialized successfully");
         Serial.println("Local IP: " + nt.formatIPAddress(Ethernet.localIP()));
@@ -110,13 +112,58 @@ void setup() {
     } else {
         Serial.println("Failed to initialize Ethernet!");
     }
+*/
+    pinMode(PIN_LED, OUTPUT);
+
+    Serial.begin(9600);
+    while (!Serial) {
+      delay(500);  // Wait for Serial to be ready
+    } 
+    // Update button states
+  for (uint8_t i = 0; i < numButtons; i++) {
+    buttons[i].update();
+    Serial.print("Button ");
+    Serial.print(i + 1);
+    Serial.print("State: ");
+    Serial.println(buttons[i].read() ? "Released" : "Pressed");
+    if (buttons[i].read()) {
+      // If the button is pressed, turn on the corresponding LED
+      digitalWrite(PIN_LED, HIGH);
+    }
+
+  }
 
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
 
-  nt.update();
+  // Update button states
+  for (uint8_t i = 0; i < numButtons; i++) {
+    buttons[i].update();
+    if (buttons[i].fell()) {
+      // If the button is pressed, turn on the corresponding LED
+      digitalWrite(PIN_LED, HIGH);
+      if (i<12) {
+        for(int j=0;j<12;j++)
+          pixels.setPixelColor(j,pixels.Color(0, 0, 0));
+        pixels.setPixelColor(i, pixels.Color(255, 0, 0)); // Set the pixel to red
+
+      }
+    }
+    if(buttons[i].rose()){
+      // If the button is released, turn off the LED
+      digitalWrite(PIN_LED, LOW);
+      
+    }
+
+  }
+  pixels.show();
+
+  
+
+
+  //nt.update();
 
 
   delay(5);
@@ -124,39 +171,39 @@ void loop() {
 
 
 void test_all_pixels(){
-
+  int delaytime=20;
 
   for(int i=0;i<NUM_LEDS;i++){
     pixels.setPixelColor(i,255,0,0);
     pixels.show();
-    delay(60);
+    delay(delaytime);
   }
   for(int i=0;i<NUM_LEDS;i++){
     pixels.setPixelColor(i,0,0,0);
     pixels.show();
-    delay(60);
+    delay(delaytime);
   }
 
   for(int i=0;i<NUM_LEDS;i++){
     pixels.setPixelColor(i,0,255,0);
     pixels.show();
-    delay(60);
+    delay(delaytime);
   }
   for(int i=0;i<NUM_LEDS;i++){
     pixels.setPixelColor(i,0,0,0);
     pixels.show();
-    delay(60);
+    delay(delaytime);
   }
   for(int i=0;i<NUM_LEDS;i++){
     pixels.setPixelColor(i,0,0,255);
     pixels.show();
-    delay(60);
+    delay(delaytime);
   }
 
   for(int i=0;i<NUM_LEDS;i++){
     pixels.setPixelColor(i,0,0,0);
     pixels.show();
-    delay(60);
+    delay(delaytime);
   }
 
   pixels.clear();

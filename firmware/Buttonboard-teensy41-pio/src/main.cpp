@@ -62,16 +62,16 @@ const uint8_t _buttonPins[] = {
   PIN_BTN_25,PIN_BTN_26,PIN_BTN_27,PIN_BTN_28
 };
 
-const uint8_t numButtons = sizeof(_buttonPins) / sizeof(_buttonPins[0]);
+const uint8_t numButtons = 23; //sizeof(_buttonPins) / sizeof(_buttonPins[0]);
 
 //arrays to group related buttons
-//reef buttons, one will be lit at a time
+//reef buttons/leds, one will be lit at a time
 uint8_t _reefPositionButtons[] = {
   0,1,2,3,4,5,6,7,8,9,10,11
 };
-//level buttons, one at a time once more
+//level buttons/leds, one at a time once more
 uint8_t _reefLevelButtons[] = {
-  12,13,14,15
+  12,13,14,15,16,17,18,19
 };
 
 
@@ -87,7 +87,6 @@ void setup() {
   // put your setup code here, to run once:
   // Initialize each button
     for (uint8_t i = 0; i < numButtons; i++) {
-      pinMode(_buttonPins[i], INPUT_PULLUP); // Set pin mode to INPUT_PULLUP
         buttons[i].attach(_buttonPins[i], INPUT_PULLUP);
         buttons[i].interval(10); // 10ms debounce interval
     }
@@ -99,6 +98,8 @@ void setup() {
   test_all_pixels();
 
   /*
+  Serial.println("Initializing Ethernet...");
+  nt.enableDebug();
   if (nt.begin()) {
         Serial.println("Ethernet initialized successfully");
         Serial.println("Local IP: " + nt.formatIPAddress(Ethernet.localIP()));
@@ -116,9 +117,12 @@ void setup() {
     pinMode(PIN_LED, OUTPUT);
 
     Serial.begin(9600);
-    while (!Serial) {
-      delay(500);  // Wait for Serial to be ready
+    
+    int serialRetries=50;
+    while (!Serial && (serialRetries--)>0) {
+      delay(10);  // Wait for Serial to be ready
     } 
+
     // Update button states
   for (uint8_t i = 0; i < numButtons; i++) {
     buttons[i].update();
@@ -136,29 +140,48 @@ void setup() {
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  
 
   // Update button states
   for (uint8_t i = 0; i < numButtons; i++) {
     buttons[i].update();
     if (buttons[i].fell()) {
-      // If the button is pressed, turn on the corresponding LED
+      //set PIN 13 LED for debug purposes
       digitalWrite(PIN_LED, HIGH);
-      if (i<12) {
-        for(int j=0;j<12;j++)
-          pixels.setPixelColor(j,pixels.Color(0, 0, 0));
-        pixels.setPixelColor(i, pixels.Color(255, 0, 0)); // Set the pixel to red
 
+      //set USB joystick button state
+      Joystick.button(i+1,true);
+
+      //set reef buttons to black, then set THIS reef button to blue.
+      if (i<12){
+        for(int j=0;j<12;j++){
+          pixels.setPixelColor(j,0,0,0);
+        }
+        pixels.setPixelColor(i,0,0,255);
       }
+
+      //set level buttons to black, then set THIS level button to blue.
+      if(i>=12 && i<20){
+        for(int j=12;j<20;j++){
+          pixels.setPixelColor(j,0,0,0);
+        }
+        pixels.setPixelColor(i,0,0,255);
+      }
+
+      //write led states to leds
+      pixels.show();
+
     }
     if(buttons[i].rose()){
       // If the button is released, turn off the LED
       digitalWrite(PIN_LED, LOW);
-      
-    }
 
+      //set the USB joystick button state to released
+      Joystick.button(i+1,false);
+    }
   }
-  pixels.show();
+
+  
 
   
 
@@ -178,22 +201,14 @@ void test_all_pixels(){
     pixels.show();
     delay(delaytime);
   }
-  for(int i=0;i<NUM_LEDS;i++){
-    pixels.setPixelColor(i,0,0,0);
-    pixels.show();
-    delay(delaytime);
-  }
+  
 
   for(int i=0;i<NUM_LEDS;i++){
     pixels.setPixelColor(i,0,255,0);
     pixels.show();
     delay(delaytime);
   }
-  for(int i=0;i<NUM_LEDS;i++){
-    pixels.setPixelColor(i,0,0,0);
-    pixels.show();
-    delay(delaytime);
-  }
+  
   for(int i=0;i<NUM_LEDS;i++){
     pixels.setPixelColor(i,0,0,255);
     pixels.show();

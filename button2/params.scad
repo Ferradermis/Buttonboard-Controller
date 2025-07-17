@@ -31,7 +31,7 @@ w_button_guide=3;
 d_switch_key=6;
 h_switch_key=3.5;
 d_switch_neck=7;
-d_switch_body=8;
+d_switch_body=7.4;
 d_switch_shoulder=12;
 
 w_wire_notch=d_switch_body-2;
@@ -50,7 +50,7 @@ h_pedestal=t_pixel_unit + 0.25;
 h_nut=9;
 d_nut=od_housing+10;
 nut_sides=9;
-
+h_nut_rim=2;
 
 module rcube(s,r=1){
     hull(){

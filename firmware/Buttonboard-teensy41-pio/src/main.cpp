@@ -157,7 +157,7 @@ void loop() {
         for(int j=0;j<12;j++){
           pixels.setPixelColor(j,0,0,0);
         }
-        pixels.setPixelColor(i,0,0,255);
+        pixels.setPixelColor(i,200,0,200);
       }
 
       //set level buttons to black, then set THIS level button to blue.
@@ -165,7 +165,7 @@ void loop() {
         for(int j=12;j<20;j++){
           pixels.setPixelColor(j,0,0,0);
         }
-        pixels.setPixelColor(i,0,0,255);
+        pixels.setPixelColor(i,200,200,0);
       }
 
       //write led states to leds

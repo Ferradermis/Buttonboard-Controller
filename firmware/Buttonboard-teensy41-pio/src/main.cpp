@@ -161,8 +161,8 @@ void loop() {
       }
 
       //set level buttons to black, then set THIS level button to blue.
-      if(i>=12 && i<20){
-        for(int j=12;j<20;j++){
+      if(i>=12 && i<23){
+        for(int j=12;j<23;j++){
           pixels.setPixelColor(j,0,0,0);
         }
         pixels.setPixelColor(i,200,200,0);

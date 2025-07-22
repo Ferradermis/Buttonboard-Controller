@@ -51,7 +51,9 @@
 #define TEAM_NUMBER 6574
 
 //definition of void test_all_pixels()
+uint32_t HSVtoRGB(Adafruit_NeoPixel &strip, uint8_t h, uint8_t s, uint8_t v);
 void test_all_pixels();
+void testNeoPixels(Adafruit_NeoPixel &strip);
 
 
 const uint8_t _buttonPins[] = {
@@ -95,7 +97,8 @@ void setup() {
   pixels.clear();
   pixels.show();
 
-  test_all_pixels();
+  testNeoPixels(pixels);
+  //test_all_pixels();
 
   /*
   Serial.println("Initializing Ethernet...");
@@ -152,7 +155,7 @@ void loop() {
       //set USB joystick button state
       Joystick.button(i+1,true);
 
-      //set reef buttons to black, then set THIS reef button to blue.
+      //set reef buttons to black, then set THIS reef button to purple.
       if (i<12){
         for(int j=0;j<12;j++){
           pixels.setPixelColor(j,0,0,0);
@@ -160,12 +163,20 @@ void loop() {
         pixels.setPixelColor(i,200,0,200);
       }
 
-      //set level buttons to black, then set THIS level button to blue.
+      //set level buttons to black, then set THIS level button to yellow.
       if(i>=12 && i<23){
-        for(int j=12;j<23;j++){
+        for(int j=12;j<22;j++){
           pixels.setPixelColor(j,0,0,0);
         }
         pixels.setPixelColor(i,200,200,0);
+      }
+
+      //climb button
+      if(i==22){
+        for(int j=22;j<23;j++){
+          pixels.setPixelColor(j,0,0,0);
+        }
+        pixels.setPixelColor(i,0,0,200);
       }
 
       //write led states to leds
@@ -226,3 +237,99 @@ void test_all_pixels(){
 }
 
 
+// Helper function to convert HSV to RGB
+uint32_t HSVtoRGB(Adafruit_NeoPixel &strip, uint8_t h, uint8_t s, uint8_t v) {
+  uint8_t r, g, b;
+  uint8_t region = h / 43;
+  uint8_t remainder = (h - (region * 43)) * 6;
+  
+  uint8_t p = (v * (255 - s)) >> 8;
+  uint8_t q = (v * (255 - ((s * remainder) >> 8))) >> 8;
+  uint8_t t = (v * (255 - ((s * (255 - remainder)) >> 8))) >> 8;
+  
+  switch (region) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    default: r = v; g = p; b = q; break;
+  }
+  
+  return strip.Color(r, g, b);
+}
+
+void testNeoPixels(Adafruit_NeoPixel &strip) {
+  uint16_t numPixels = strip.numPixels();
+  uint32_t startTime = millis();
+  
+  // Phase 1: Rainbow chase (1.5 seconds)
+  while (millis() - startTime < 1500) {
+    for (int i = 0; i < numPixels; i++) {
+      // Create rainbow effect with moving offset
+      uint8_t hue = ((i * 255 / numPixels) + (millis() / 10)) & 255;
+      strip.setPixelColor(i, HSVtoRGB(strip, hue, 255, 255));
+    }
+    strip.show();
+    delay(20);
+  }
+  
+  // Phase 2: Individual pixel sweep (1.5 seconds)
+  startTime = millis();
+  while (millis() - startTime < 1500) {
+    strip.clear();
+    int pos = ((millis() - startTime) * numPixels / 1500) % numPixels;
+    
+    // Bright white pixel with colorful trail
+    strip.setPixelColor(pos, strip.Color(255, 255, 255));
+    for (int i = 1; i <= 5 && pos - i >= 0; i++) {
+      uint8_t brightness = 255 - (i * 40);
+      uint8_t hue = (millis() / 20 + i * 40) & 255;
+      uint32_t color = HSVtoRGB(strip, hue, 255, brightness);
+      strip.setPixelColor(pos - i, color);
+    }
+    strip.show();
+    delay(30);
+  }
+  
+  // Phase 3: Color fills (1 second)
+  uint32_t colors[] = {
+    strip.Color(255, 0, 0),   // Red
+    strip.Color(0, 255, 0),   // Green  
+    strip.Color(0, 0, 255),   // Blue
+    strip.Color(255, 255, 0), // Yellow
+    strip.Color(255, 0, 255), // Magenta
+    strip.Color(0, 255, 255)  // Cyan
+  };
+  
+  for (int c = 0; c < 6; c++) {
+    strip.fill(colors[c]);
+    strip.show();
+    delay(166); // ~1 second total for all colors
+  }
+  
+  // Phase 4: Sparkle effect (1 second)
+  startTime = millis();
+  while (millis() - startTime < 1000) {
+    strip.clear();
+    
+    // Random sparkles
+    for (int i = 0; i < numPixels / 3; i++) {
+      int pixel = random(numPixels);
+      uint32_t color = HSVtoRGB(strip, random(255), 255, random(128, 255));
+      strip.setPixelColor(pixel, color);
+    }
+    strip.show();
+    delay(50);
+  }
+  
+  // Final fade out
+  for (int brightness = 255; brightness >= 0; brightness -= 5) {
+    strip.fill(strip.Color(brightness / 3, brightness / 3, brightness));
+    strip.show();
+    delay(20);
+  }
+  
+  strip.clear();
+  strip.show();
+}

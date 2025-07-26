@@ -73,7 +73,7 @@ uint8_t _reefPositionButtons[] = {
 };
 //level buttons/leds, one at a time once more
 uint8_t _reefLevelButtons[] = {
-  12,13,14,15,16,17,18,19
+  12,13,14,15
 };
 
 
@@ -83,6 +83,19 @@ Bounce buttons[numButtons];
 
 // Global objects
 FRCNetworkTables nt(TEAM_NUMBER);
+
+uint32_t cReef=pixels.Color(200,0,200);
+uint32_t cRed=pixels.Color(200,0,0);
+uint32_t cAlgae=pixels.Color(0,200,200);
+uint32_t cYellow=pixels.Color(200,200,0);
+uint32_t cGreen=pixels.Color(200,200,0);
+uint32_t cBlue=pixels.Color(200,200,0);
+
+uint32_t buttonColors[]={
+  cReef,cReef,cReef,cReef,cReef,cReef,cReef,cReef,
+  cReef,cReef,cReef,cReef,cReef,cReef,cReef,cReef,
+  cYellow,cAlgae,cAlgae,cYellow,cYellow,cGreen,cBlue
+};
 
 
 void setup() {
@@ -163,12 +176,12 @@ void loop() {
         pixels.setPixelColor(i,200,0,200);
       }
 
-      //set level buttons to black, then set THIS level button to yellow.
-      if(i>=12 && i<23){
-        for(int j=12;j<22;j++){
+        //set level buttons to black, then set THIS level button to yellow.
+      if(i>=12 && i<22){
+        for(int j=12;j<16;j++){
           pixels.setPixelColor(j,0,0,0);
         }
-        pixels.setPixelColor(i,200,200,0);
+        pixels.setPixelColor(i,buttonColors[i]);
       }
 
       //climb button
@@ -176,7 +189,7 @@ void loop() {
         for(int j=22;j<23;j++){
           pixels.setPixelColor(j,0,0,0);
         }
-        pixels.setPixelColor(i,0,0,200);
+        pixels.setPixelColor(i,buttonColors[i]);
       }
 
       //write led states to leds

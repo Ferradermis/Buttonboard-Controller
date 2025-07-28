@@ -86,15 +86,15 @@ FRCNetworkTables nt(TEAM_NUMBER);
 
 uint32_t cReef=pixels.Color(200,0,200);
 uint32_t cRed=pixels.Color(200,0,0);
-uint32_t cAlgae=pixels.Color(0,200,200);
+uint32_t cAlgae=pixels.Color(0,210,20);
 uint32_t cYellow=pixels.Color(200,200,0);
-uint32_t cGreen=pixels.Color(200,200,0);
-uint32_t cBlue=pixels.Color(200,200,0);
+uint32_t cGreen=pixels.Color(0,200,0);
+uint32_t cBlue=pixels.Color(0,0,200);
 
 uint32_t buttonColors[]={
   cReef,cReef,cReef,cReef,cReef,cReef,cReef,cReef,
   cReef,cReef,cReef,cReef,cReef,cReef,cReef,cReef,
-  cYellow,cAlgae,cAlgae,cYellow,cYellow,cGreen,cBlue
+  cYellow,cAlgae,cAlgae,cYellow,cGreen,cYellow,cBlue
 };
 
 
@@ -173,16 +173,18 @@ void loop() {
         for(int j=0;j<12;j++){
           pixels.setPixelColor(j,0,0,0);
         }
-        pixels.setPixelColor(i,200,0,200);
+        pixels.setPixelColor(i,buttonColors[i]);
       }
+
 
         //set level buttons to black, then set THIS level button to yellow.
       if(i>=12 && i<22){
-        for(int j=12;j<16;j++){
+        for(int j=12;j<22;j++){
           pixels.setPixelColor(j,0,0,0);
         }
         pixels.setPixelColor(i,buttonColors[i]);
       }
+       
 
       //climb button
       if(i==22){

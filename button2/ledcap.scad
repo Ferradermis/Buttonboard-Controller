@@ -1,6 +1,6 @@
 include <./params.scad>
 
-tol=0.85;
+tol=0.05;
 
 main();
 

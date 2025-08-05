@@ -28,10 +28,10 @@ h_button_travel=h_button+2;
 w_button_guide=3.5;
 
 //switch params
-d_switch_key=6.37;
+d_switch_key=6.05;
 h_switch_key=3.5;
 d_switch_neck=7;
-d_switch_body=7.4;
+d_switch_body=7.20;
 d_switch_shoulder=12;
 
 

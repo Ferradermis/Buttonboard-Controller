@@ -192,6 +192,7 @@ void loop() {
           pixels.setPixelColor(j,0,0,0);
         }
         pixels.setPixelColor(i,buttonColors[i]);
+        nt.printStatus();
       }
 
       //write led states to leds

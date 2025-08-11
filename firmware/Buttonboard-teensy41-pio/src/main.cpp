@@ -1,7 +1,8 @@
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
 #include <Bounce2.h>
-#include "FRCNetworkTables.h"
+#include <NativeEthernet.h>
+#include <NetworkTablesSubscriber.h>
 
 #pragma region Button Pins
 #define PIN_BTN_01 0
@@ -82,7 +83,7 @@ Adafruit_NeoPixel pixels(NUM_LEDS, PIN_NEOPIXELS, NEO_GRB + NEO_KHZ800);
 Bounce buttons[numButtons];
 
 // Global objects
-FRCNetworkTables nt(TEAM_NUMBER);
+NetworkTablesSubscriber nt(TEAM_NUMBER);
 
 uint32_t cReef=pixels.Color(200,0,200);
 uint32_t cRed=pixels.Color(200,0,0);

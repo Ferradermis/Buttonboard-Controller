@@ -1,8 +1,8 @@
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
 #include <Bounce2.h>
-#include <NativeEthernet.h>
-#include <NetworkTablesSubscriber.h>
+
+//#include <NetworkTablesSubscriber.h>
 
 #pragma region Button Pins
 #define PIN_BTN_01 0
@@ -83,7 +83,7 @@ Adafruit_NeoPixel pixels(NUM_LEDS, PIN_NEOPIXELS, NEO_GRB + NEO_KHZ800);
 Bounce buttons[numButtons];
 
 // Global objects
-NetworkTablesSubscriber nt(TEAM_NUMBER);
+//NetworkTablesSubscriber nt(TEAM_NUMBER);
 
 uint32_t cReef=pixels.Color(200,0,200);
 uint32_t cRed=pixels.Color(200,0,0);
@@ -179,13 +179,20 @@ void loop() {
 
 
         //set level buttons to black, then set THIS level button to yellow.
-      if(i>=12 && i<22){
-        for(int j=12;j<22;j++){
+      if(i>=12 && i<16){
+        for(int j=12;j<16;j++){
           pixels.setPixelColor(j,0,0,0);
         }
         pixels.setPixelColor(i,buttonColors[i]);
       }
        
+      //set level buttons to black, then set THIS level button to yellow.
+      if(i>=16 && i<22){
+        for(int j=16;j<22;j++){
+          pixels.setPixelColor(j,0,0,0);
+        }
+        pixels.setPixelColor(i,buttonColors[i]);
+      }
 
       //climb button
       if(i==22){
@@ -193,7 +200,7 @@ void loop() {
           pixels.setPixelColor(j,0,0,0);
         }
         pixels.setPixelColor(i,buttonColors[i]);
-        nt.printStatus();
+        //nt.printStatus();
       }
 
       //write led states to leds

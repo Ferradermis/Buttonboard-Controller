@@ -8,10 +8,35 @@
 
 #include <Arduino.h>
 #include <NativeEthernet.h>
+#include "EthernetConfig.h"
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 #include <map>
 #include <functional>
+
+// Utility functions for data type conversion
+namespace NTUtils {
+    inline double stringToDouble(const String& str) {
+        return atof(str.c_str());
+    }
+    
+    inline bool stringToBool(const String& str) {
+        if (str.equalsIgnoreCase("true") || str == "1") {
+            return true;
+        } else if (str.equalsIgnoreCase("false") || str == "0") {
+            return false;
+        } else {
+            // Try to parse as number
+            return (atoi(str.c_str()) != 0);
+        }
+    }
+    
+    inline String ipToString(IPAddress ip) {
+        char buffer[16];
+        sprintf(buffer, "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+        return String(buffer);
+    }
+}
 
 // Forward declarations
 class NetworkTablesSubscriber;
@@ -73,11 +98,7 @@ private:
     void sendHeartbeat();
     
     // Utility functions
-    String createSubscribeMessage(const String& key, const String& dataType);
-    String createUnsubscribeMessage(const String& key);
     IPAddress calculateRobotIP(int teamNumber);
-    void updateStatistics();
-    String ipToString(IPAddress ip);
 
 public:
     NetworkTablesSubscriber(int teamNumber = 0);
@@ -86,6 +107,7 @@ public:
     // Connection management
     bool begin();
     bool begin(IPAddress customIP, uint16_t port = 5810);
+    bool begin(EthernetConfig& ethernetConfig); // New method for integration
     void setTeamNumber(int team);
     void setAutoReconnect(bool enable);
     void setConnectionCallback(ConnectionCallback callback);
@@ -156,10 +178,10 @@ bool NetworkTablesSubscriber::begin(IPAddress customIP, uint16_t port) {
     robotIP = customIP;
     ntPort = port;
     
-    Serial.printf("NT: Connecting to %s:%d\n", ipToString(robotIP).c_str(), ntPort);
+    String ipStr = NTUtils::ipToString(robotIP);
+    Serial.printf("NT: Connecting to %s:%d\n", ipStr.c_str(), ntPort);
     
     // Configure WebSocket
-    String ipStr = ipToString(robotIP);
     webSocket.begin(ipStr.c_str(), ntPort, "/nt/ws");
     webSocket.setReconnectInterval(5000);
     
@@ -170,6 +192,12 @@ bool NetworkTablesSubscriber::begin(IPAddress customIP, uint16_t port) {
 void NetworkTablesSubscriber::setTeamNumber(int team) {
     teamNumber = team;
     robotIP = calculateRobotIP(team);
+}
+
+bool NetworkTablesSubscriber::begin(EthernetConfig& ethernetConfig) {
+    // Use the robot IP from ethernet configuration
+    IPAddress robotIP = ethernetConfig.getRobotIP();
+    return begin(robotIP, ntPort);
 }
 
 void NetworkTablesSubscriber::setAutoReconnect(bool enable) {
@@ -197,7 +225,10 @@ void NetworkTablesSubscriber::update() {
         Serial.println("NT: Attempting reconnection...");
         lastConnectionAttempt = currentTime;
         webSocket.disconnect();
-        webSocket.begin(ipStr, ntPort, "/nt/ws");
+        
+        // Convert IP to string for reconnection
+        String robotIPStr = NTUtils::ipToString(robotIP);
+        webSocket.begin(robotIPStr.c_str(), ntPort, "/nt/ws");
     }
 }
 
@@ -206,7 +237,8 @@ bool NetworkTablesSubscriber::subscribeNumber(const String& key, NumberCallback 
     sub.key = key;
     sub.dataType = "double";
     sub.callback = [key, callback](const String& valueStr) {
-        callback(key, valueStr.toDouble());
+        double value = NTUtils::stringToDouble(valueStr);
+        callback(key, value);
     };
     sub.active = true;
     sub.lastUpdate = millis();
@@ -226,7 +258,7 @@ bool NetworkTablesSubscriber::subscribeBoolean(const String& key, BooleanCallbac
     sub.key = key;
     sub.dataType = "boolean";
     sub.callback = [key, callback](const String& valueStr) {
-        bool value = (valueStr == "true" || valueStr == "1");
+        bool value = NTUtils::stringToBool(valueStr);
         callback(key, value);
     };
     sub.active = true;
@@ -288,11 +320,11 @@ void NetworkTablesSubscriber::unsubscribeAll() {
 bool NetworkTablesSubscriber::publishNumber(const String& key, double value) {
     if (!isConnected) return false;
     
-    DynamicJsonDocument doc(256);
+    StaticJsonDocument<256> doc;
     doc["method"] = "announce";
     doc["params"]["name"] = key;
     doc["params"]["type"] = "double";
-    doc["params"]["properties"] = JsonObject();
+    doc["params"]["properties"].to<JsonObject>();
     
     String message;
     serializeJson(doc, message);
@@ -314,11 +346,11 @@ bool NetworkTablesSubscriber::publishNumber(const String& key, double value) {
 bool NetworkTablesSubscriber::publishBoolean(const String& key, bool value) {
     if (!isConnected) return false;
     
-    DynamicJsonDocument doc(256);
+    StaticJsonDocument<256> doc;
     doc["method"] = "announce";
     doc["params"]["name"] = key;
     doc["params"]["type"] = "boolean";
-    doc["params"]["properties"] = JsonObject();
+    doc["params"]["properties"].to<JsonObject>();
     
     String message;
     serializeJson(doc, message);
@@ -340,11 +372,11 @@ bool NetworkTablesSubscriber::publishBoolean(const String& key, bool value) {
 bool NetworkTablesSubscriber::publishString(const String& key, const String& value) {
     if (!isConnected) return false;
     
-    DynamicJsonDocument doc(256);
+    StaticJsonDocument<256> doc;
     doc["method"] = "announce";
     doc["params"]["name"] = key;
     doc["params"]["type"] = "string";
-    doc["params"]["properties"] = JsonObject();
+    doc["params"]["properties"].to<JsonObject>();
     
     String message;
     serializeJson(doc, message);
@@ -435,7 +467,7 @@ void NetworkTablesSubscriber::processNTMessage(const String& message) {
 }
 
 void NetworkTablesSubscriber::sendSubscription(const String& key, const String& dataType) {
-    DynamicJsonDocument doc(256);
+    StaticJsonDocument<256> doc;
     doc["method"] = "subscribe";
     doc["params"]["topics"][0] = key;
     doc["params"]["subuid"] = nextSubscriptionId++;
@@ -449,9 +481,9 @@ void NetworkTablesSubscriber::sendSubscription(const String& key, const String& 
 }
 
 void NetworkTablesSubscriber::sendUnsubscription(const String& key) {
-    DynamicJsonDocument doc(256);
+    StaticJsonDocument<256> doc;
     doc["method"] = "unsubscribe";
-    doc["params"]["subuid"] = nextSubscriptionId; // Use stored subscription ID in real implementation
+    doc["params"]["subuid"] = nextSubscriptionId;
     
     String message;
     serializeJson(doc, message);
@@ -461,8 +493,6 @@ void NetworkTablesSubscriber::sendUnsubscription(const String& key) {
 
 void NetworkTablesSubscriber::sendHeartbeat() {
     if (!isConnected) return;
-    
-    // Simple ping to keep connection alive
     webSocket.sendPing();
 }
 
@@ -490,9 +520,11 @@ void NetworkTablesSubscriber::getStatistics(unsigned long& uptime, unsigned long
 }
 
 void NetworkTablesSubscriber::printStatus() {
+    String ipStr = NTUtils::ipToString(robotIP);
+    
     Serial.println("=== NetworkTables Status ===");
     Serial.printf("Connected: %s\n", isConnected ? "YES" : "NO");
-    Serial.printf("Robot IP: %s:%d\n", ipToString(robotIP).c_str(), ntPort);
+    Serial.printf("Robot IP: %s:%d\n", ipStr.c_str(), ntPort);
     Serial.printf("Team Number: %d\n", teamNumber);
     Serial.printf("Uptime: %lu ms\n", getUptime());
     Serial.printf("Disconnects: %lu\n", stats.totalDisconnects);
@@ -510,12 +542,6 @@ void NetworkTablesSubscriber::printSubscriptions() {
                      millis() - pair.second.lastUpdate);
     }
     Serial.println("============================");
-}
-
-String NetworkTablesSubscriber::ipToString(IPAddress ip) {
-    char ipStr[16];
-    sprintf(ipStr, "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
-    return String(ipStr);
 }
 
 #endif // NETWORKTABLES_SUBSCRIBER_H

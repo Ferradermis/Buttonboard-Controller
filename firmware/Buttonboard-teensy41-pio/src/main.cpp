@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
 #include <Bounce2.h>
-#include <NetworkTablesSubscriber.h>
+#include <RobustNTCLient.h>
 #include "EthernetConfig.h"
 
 #pragma region Button Pins
@@ -71,6 +71,7 @@ void testNeoPixels(Adafruit_NeoPixel &strip);
 void setupEthernet();
 void setupNetworkTables();
 void setupTelemetrySubscriptions();
+void runEthernetHardwareDiagnostics();
 
 
 const uint8_t _buttonPins[] = {
@@ -100,7 +101,7 @@ Bounce buttons[numButtons];
 
 // Global objects
 EthernetConfig ethernet(TEAM_NUMBER);
-NetworkTablesSubscriber nt(TEAM_NUMBER);
+RobustNTClient nt(TEAM_NUMBER);
 
 uint32_t cReef=pixels.Color(200,0,200);
 uint32_t cRed=pixels.Color(200,0,0);
@@ -123,6 +124,9 @@ uint32_t buttonColors[]={
 
 
 void setup() {
+
+Serial.begin(9600);
+
   // put your setup code here, to run once:
   // Initialize each button
     for (uint8_t i = 0; i < numButtons; i++) {
@@ -137,26 +141,10 @@ void setup() {
   testNeoPixels(pixels);
   //test_all_pixels();
 
-  /*
-  Serial.println("Initializing Ethernet...");
-  nt.enableDebug();
-  if (nt.begin()) {
-        Serial.println("Ethernet initialized successfully");
-        Serial.println("Local IP: " + nt.formatIPAddress(Ethernet.localIP()));
-        
-        // Attempt initial connection
-        if (nt.connect()) {
-            Serial.println("Connected to robot!");
-        } else {
-            Serial.println("Initial connection failed - will retry automatically");
-        }
-    } else {
-        Serial.println("Failed to initialize Ethernet!");
-    }
-*/
+  
     pinMode(PIN_LED, OUTPUT);
 
-    Serial.begin(9600);
+    
     
     int serialRetries=50;
     while (!Serial && (serialRetries--)>0) {
@@ -177,10 +165,73 @@ void setup() {
 
   }
 
+
+  setupEthernet();
+  setupNetworkTables();
+
+
 }
 
 void loop() {
   
+    // Update Ethernet connection
+    ethernet.update();
+    
+    // Check if we need to start NetworkTables
+    static bool ntStarted = false;
+    if (!ntStarted && ethernet.isConnectionActive()) {
+        Serial.println("Ethernet is now active, starting NetworkTables...");
+        if (nt.begin()) {
+            Serial.println("NetworkTables started successfully");
+            ntStarted = true;
+        }
+    }
+    
+    // Update NetworkTables connection
+    nt.update();
+    
+    // Auto-run connection tests when we get a stable connection
+    static bool healthTestRun = false;
+    static bool messageTestsRun = false;
+    static bool longTermTestStarted = false;
+    static unsigned long connectionStartTime = 0;
+    
+    if (nt.connected()) {
+        if (connectionStartTime == 0) {
+            connectionStartTime = millis();
+            Serial.println("🟢 Connection established - will run health test in 10 seconds...");
+        } else if (!healthTestRun && (millis() - connectionStartTime >= 10000)) {
+            Serial.println("🩺 Running connection health test (no messages)...");
+            nt.runConnectionHealthTest();
+            healthTestRun = true;
+            connectionStartTime = millis(); // Reset timer for message tests
+        } else if (healthTestRun && !messageTestsRun && (millis() - connectionStartTime >= 5000)) {
+            if (nt.connected()) {
+                Serial.println("🧪 Running message protocol tests...");
+                nt.runMessageTests();
+                messageTestsRun = true;
+                connectionStartTime = millis(); // Reset for long-term test
+            }
+        } else if (messageTestsRun && !longTermTestStarted && (millis() - connectionStartTime >= 5000)) {
+            if (nt.connected()) {
+                Serial.println("⏰ Starting long-term stability test (5 minutes)...");
+                longTermTestStarted = true;
+                connectionStartTime = millis();
+            }
+        } else if (longTermTestStarted && (millis() - connectionStartTime >= 300000)) { // 5 minutes
+            if (nt.connected()) {
+                Serial.println("🎉 LONG-TERM TEST PASSED! Connection stable for 5+ minutes!");
+                Serial.println("🚀 Your NetworkTables implementation is ROCK SOLID!");
+            }
+            longTermTestStarted = false; // Reset
+        }
+    } else if (!nt.connected()) {
+        // Reset test flags if we lose connection
+        healthTestRun = false;
+        messageTestsRun = false;
+        longTermTestStarted = false;
+        connectionStartTime = 0;
+    }
 
   // Update button states
   for (uint8_t i = 0; i < numButtons; i++) {
@@ -244,7 +295,6 @@ void loop() {
   
 
 
-  //nt.update();
 
 
   delay(5);
@@ -382,6 +432,9 @@ void testNeoPixels(Adafruit_NeoPixel &strip) {
 }
 
 void setupEthernet() {
+
+    runEthernetHardwareDiagnostics();
+
     Serial.println("Starting Ethernet configuration...");
     
     // Try DHCP first, fallback to static team-based IP
@@ -415,11 +468,11 @@ void setupNetworkTables() {
     });
     
     // Subscribe to robot telemetry
-    setupTelemetrySubscriptions();
+    //setupTelemetrySubscriptions();
     
     // Start NetworkTables connection using ethernet configuration
     if (ethernet.isConnectionActive()) {
-        if (nt.begin(ethernet)) {
+        if (nt.begin()) {
             Serial.println("NetworkTables initialization started");
         } else {
             Serial.println("Failed to initialize NetworkTables");
@@ -429,49 +482,60 @@ void setupNetworkTables() {
     }
 }
 
-void setupTelemetrySubscriptions() {
-    // Shooter subsystem
-    nt.subscribeBoolean("shooter/ready", [](const String& key, bool value) {
-        robotData.shooterReady = value;
-        Serial.printf("Shooter ready: %s\n", value ? "YES" : "NO");
-    });
+
+
+
+void runEthernetHardwareDiagnostics() {
+    Serial.println("\n=== ETHERNET HARDWARE CHECK ===");
     
-    nt.subscribeNumber("shooter/speed", [](const String& key, double value) {
-        robotData.shooterSpeed = value;
-    });
+    // Test 1: Check if Teensy 4.1 Ethernet hardware is detected
+    byte testMAC[6] = {0x02, 0xFE, 0xED, 0x65, 0x74, 0x64};
     
-    // Intake subsystem
-    nt.subscribeBoolean("intake/deployed", [](const String& key, bool value) {
-        robotData.intakeDeployed = value;
-        Serial.printf("Intake deployed: %s\n", value ? "YES" : "NO");
-    });
+    Serial.print("Testing Ethernet hardware... ");
+    Ethernet.begin(testMAC);
+    delay(1000);
     
-    nt.subscribeNumber("intake/position", [](const String& key, double value) {
-        robotData.intakePosition = value;
-    });
+    auto hardware = Ethernet.hardwareStatus();
+    if (hardware == EthernetNoHardware) {
+        Serial.println("❌ CRITICAL: No Ethernet hardware detected!");
+        Serial.println("   Check:");
+        Serial.println("   - Board selection is 'Teensy 4.1'");
+        Serial.println("   - Using NativeEthernet library");
+        Serial.println("   - Hardware may be faulty");
+        return;
+    } else {
+        Serial.println("✅ Hardware detected");
+    }
     
-    // Climbing subsystem
-    nt.subscribeBoolean("climb/engaged", [](const String& key, bool value) {
-        robotData.climbEngaged = value;
-        Serial.printf("Climb engaged: %s\n", value ? "YES" : "NO");
-    });
+    // Test 2: Check physical link
+    Serial.print("Testing physical link... ");
+    delay(3000); // Give link time to come up
     
-    // System telemetry
-    nt.subscribeNumber("system/batteryVoltage", [](const String& key, double value) {
-        robotData.batteryVoltage = value;
-        if (value < 11.5) {
-            Serial.printf("WARNING: Low battery voltage: %.1fV\n", value);
-        }
-    });
+    auto linkStatus = Ethernet.linkStatus();
+    if (linkStatus == LinkON) {
+        Serial.println("✅ Link UP");
+    } else {
+        Serial.println("❌ Link DOWN");
+        Serial.println("   Check:");
+        Serial.println("   - Ethernet cable is connected");
+        Serial.println("   - Cable is not damaged");
+        Serial.println("   - Switch/router port is working");
+        Serial.println("   - Using straight-through cable (not crossover)");
+        Serial.println("   - Cable is CAT5e or CAT6");
+    }
     
-    // Autonomous mode
-    nt.subscribeString("auto/selectedMode", [](const String& key, const String& value) {
-        robotData.autonomousMode = value;
-        Serial.printf("Auto mode selected: %s\n", value.c_str());
-    });
+    // Test 3: Check IP assignment
+    Serial.print("Testing IP assignment... ");
+    IPAddress currentIP = Ethernet.localIP();
+    if (currentIP != IPAddress(0, 0, 0, 0)) {
+        Serial.printf("✅ IP: %d.%d.%d.%d\n", currentIP[0], currentIP[1], currentIP[2], currentIP[3]);
+    } else {
+        Serial.println("❌ No IP assigned");
+        Serial.println("   Check:");
+        Serial.println("   - DHCP server is running");
+        Serial.println("   - Physical link is up");
+        Serial.println("   - Network configuration");
+    }
     
-    // Drive configuration
-    nt.subscribeBoolean("drive/fieldOriented", [](const String& key, bool value) {
-        robotData.fieldOriented = value;
-    });
+    Serial.println("=== HARDWARE CHECK COMPLETE ===\n");
 }

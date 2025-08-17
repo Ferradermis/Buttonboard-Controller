@@ -1,111 +1,109 @@
-// Copyright (c) FIRST and other WPILib contributors.
-// Open Source Software; you can modify and/or share it under the terms of
-// the WPILib BSD license file in the root directory of this project.
+// Clean integration in your Robot.java
 
 package frc.robot;
 
-import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj.TimedRobot;
-import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.CommandScheduler;
+import edu.wpi.first.wpilibj.Timer;
+import edu.wpi.first.wpilibj.PowerDistribution;
+import edu.wpi.first.networktables.NetworkTable;
+import edu.wpi.first.networktables.NetworkTableInstance;
 
-/**
- * The methods in this class are called automatically corresponding to each mode, as described in
- * the TimedRobot documentation. If you change the name of this class or the package after creating
- * this project, you must also update the Main.java file in the project.
- */
 public class Robot extends TimedRobot {
-  private Command m_autonomousCommand;
-
-  private final RobotContainer m_robotContainer;
-
-  /**
-   * This function is run when the robot is first started up and should be used for any
-   * initialization code.
-   */
-  public Robot() {
-    // Instantiate our RobotContainer.  This will perform all our button bindings, and put our
-    // autonomous chooser on the dashboard.
-    m_robotContainer = new RobotContainer();
-  }
-
-  @Override
-  public void robotInit() {
-      // START NETWORKTABLES SERVER
-      NetworkTableInstance.getDefault().startServer();
-      System.out.println("NetworkTables server started on port 5810");
-  }
-
-  /**
-   * This function is called every 20 ms, no matter the mode. Use this for items like diagnostics
-   * that you want ran during disabled, autonomous, teleoperated and test.
-   *
-   * <p>This runs after the mode specific periodic functions, but before LiveWindow and
-   * SmartDashboard integrated updating.
-   */
-  @Override
-  public void robotPeriodic() {
-    // Runs the Scheduler.  This is responsible for polling buttons, adding newly-scheduled
-    // commands, running already-scheduled commands, removing finished or interrupted commands,
-    // and running subsystem periodic() methods.  This must be called from the robot's periodic
-    // block in order for anything in the Command-based framework to work.
-    CommandScheduler.getInstance().run();
-  }
-
-  /** This function is called once each time the robot enters Disabled mode. */
-  @Override
-  public void disabledInit() {}
-
-  @Override
-  public void disabledPeriodic() {}
-
-  /** This autonomous runs the autonomous command selected by your {@link RobotContainer} class. */
-  @Override
-  public void autonomousInit() {
-    m_autonomousCommand = m_robotContainer.getAutonomousCommand();
-
-    // schedule the autonomous command (example)
-    if (m_autonomousCommand != null) {
-      m_autonomousCommand.schedule();
+  private int callCount = 0;
+    // Your existing robot components
+    private PowerDistribution pdp;
+    private NetworkTable controlBoardTable;
+    private Timer publishTimer;
+    
+    // Simple telemetry server
+    private RobotTelemetryServer telemetryServer;
+    
+    @Override
+    public void robotInit() {
+        System.out.println("=== Robot Init ===");
+        
+        // Your existing initialization
+        pdp = new PowerDistribution();
+        controlBoardTable = NetworkTableInstance.getDefault().getTable("ControlBoard");
+        publishTimer = new Timer();
+        publishTimer.start();
+        
+        // Start telemetry server
+        telemetryServer = new RobotTelemetryServer(6574); // Your team number
+        
+        // Configure real data suppliers (replace with your actual subsystems)
+        telemetryServer.setBatteryVoltageSupplier(() -> {
+            // Replace with actual battery reading
+            return 11.75; // or pdp.getVoltage() if you have a PDP
+        });
+        
+        // Example: Connect to real shooter subsystem
+        // telemetryServer.setShooterSuppliers(
+        //     () -> shooter.isReady(),           // Real shooter ready status
+        //     () -> (int) shooter.getSpeed()     // Real shooter speed
+        // );
+        
+        // Example: Connect to real intake subsystem  
+        // telemetryServer.setIntakeSuppliers(
+        //     () -> intake.isDeployed(),         // Real intake deployed status
+        //     () -> intake.getPosition()         // Real intake position
+        // );
+        
+        // Start the server
+        if (telemetryServer.start()) {
+            System.out.println("✅ Telemetry server started successfully");
+        } else {
+            System.out.println("❌ Telemetry server failed to start");
+        }
+        
+        System.out.println("=== Robot Init Complete ===");
     }
-  }
-
-  /** This function is called periodically during autonomous. */
-  @Override
-  public void autonomousPeriodic() {}
-
-  @Override
-  public void teleopInit() {
-    NetworkTableInstance.getDefault().startServer();
-
-    // This makes sure that the autonomous stops running when
-    // teleop starts running. If you want the autonomous to
-    // continue until interrupted by another command, remove
-    // this line or comment it out.
-    if (m_autonomousCommand != null) {
-      m_autonomousCommand.cancel();
+    
+    @Override
+    public void robotPeriodic() {
+        // Your existing periodic code
+        if (publishTimer.hasElapsed(0.1)) {
+            // Your existing NetworkTables publishing if you want to keep it
+            controlBoardTable.getEntry("battery/voltage").setDouble(11.75);
+            publishTimer.restart();
+        }
+        
+        // Optional: Print telemetry server status occasionally
+        
+        callCount++;
+        if (callCount % 50 == 0) { // Every 5 seconds
+            if (telemetryServer.isRunning()) {
+                System.out.println("📡 Telemetry server: " + telemetryServer.getClientCount() + " clients connected");
+            }
+        }
     }
-  }
-
-  /** This function is called periodically during operator control. */
-  @Override
-  public void teleopPeriodic() {}
-
-  @Override
-  public void testInit() {
-    // Cancels all running commands at the start of test mode.
-    CommandScheduler.getInstance().cancelAll();
-  }
-
-  /** This function is called periodically during test mode. */
-  @Override
-  public void testPeriodic() {}
-
-  /** This function is called once when the robot is first started up. */
-  @Override
-  public void simulationInit() {}
-
-  /** This function is called periodically whilst in simulation. */
-  @Override
-  public void simulationPeriodic() {}
+    
+    @Override
+    public void disabledInit() {
+        System.out.println("Robot disabled - telemetry continues running");
+    }
+    
+    @Override
+    public void autonomousInit() {
+        System.out.println("Autonomous started");
+    }
+    
+    @Override
+    public void teleopInit() {
+        System.out.println("Teleop started");
+    }
+    
+    @Override
+    public void testInit() {
+        System.out.println("Test mode started");
+    }
+    
+    // Optional: Clean shutdown when robot code stops
+    @Override
+    public void close() {
+        if (telemetryServer != null) {
+            telemetryServer.stop();
+        }
+        super.close();
+    }
 }

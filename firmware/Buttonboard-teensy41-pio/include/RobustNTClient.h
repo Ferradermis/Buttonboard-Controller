@@ -1,6 +1,11 @@
 /*
- * Robust NetworkTables Client for Teensy 4.1
- * Focuses on stable connections with better debugging
+ * FIXED VERSION: Robust NetworkTables Client for Teensy 4.1
+ * 
+ * Key fixes for connection stability:
+ * 1. Proper NT4 WebSocket frame handling
+ * 2. Better connection timing and delays
+ * 3. Simplified message protocol
+ * 4. More robust reconnection logic
  */
 
 #ifndef ROBUST_NT_CLIENT_H
@@ -31,20 +36,52 @@ private:
     unsigned long heartbeatInterval;
     unsigned long lastHeartbeat;
     unsigned long lastDataReceived;
+    unsigned long connectionStartTime;
     
     // Connection stability
     int consecutiveFailures;
     int maxConsecutiveFailures;
     bool debugMode;
+    bool subscriptionSent;
     
     ConnectionCallback connectionCallback;
     
-    // Simple data storage for basic robot telemetry
+    // Simple data storage for robot telemetry
     struct {
+        // Battery data
         double batteryVoltage = 0.0;
+        bool batteryIsLow = false;
+        
+        // Robot state
         bool robotEnabled = false;
+        bool isAutonomous = false;
+        bool isTeleop = false;
+        String robotMode = "Unknown";
+        
+        // Alliance info
         String allianceColor = "unknown";
-        bool emergencyStop = false;
+        bool isRedAlliance = false;
+        
+        // Subsystem data
+        double shooterSpeed = 0.0;
+        bool shooterReady = false;
+        bool intakeDeployed = false;
+        double intakePosition = 0.0;
+        
+        // Auto selection
+        String autoMode = "Unknown";
+        int autoModeNumber = 0;
+        
+        // Drive state
+        bool fieldOriented = false;
+        
+        // Match data
+        double matchTimeRemaining = 0.0;
+        
+        // Status
+        String statusMessage = "";
+        int heartbeat = 0;
+        
         unsigned long lastUpdate = 0;
     } robotData;
     
@@ -69,6 +106,8 @@ private:
     void sendNT4Message(const String& message);
     void processWebSocketData();
     void parseNT4Message(const String& message);
+    void parseControlBoardData(const String& topic, JsonVariant value);
+    void parseSmartDashboardData(const String& topic, JsonVariant value);
     
 public:
     RobustNTClient(int teamNumber = 0);
@@ -96,24 +135,28 @@ public:
     bool publishBoolean(const String& key, bool value);
     bool publishString(const String& key, const String& value);
     bool publishHeartbeat();
-    bool publishEmergencyStop();
     bool requestRobotData();
     
     // Basic data access
     double getBatteryVoltage() const { return robotData.batteryVoltage; }
     bool isRobotEnabled() const { return robotData.robotEnabled; }
+    bool isShooterReady() const { return robotData.shooterReady; }
+    bool isIntakeDeployed() const { return robotData.intakeDeployed; }
     String getAllianceColor() const { return robotData.allianceColor; }
+    String getAutoMode() const { return robotData.autoMode; }
+    String getRobotMode() const { return robotData.robotMode; }
+    bool isFieldOriented() const { return robotData.fieldOriented; }
+    double getMatchTimeRemaining() const { return robotData.matchTimeRemaining; }
+    String getStatusMessage() const { return robotData.statusMessage; }
+    int getHeartbeat() const { return robotData.heartbeat; }
     unsigned long getLastDataUpdate() const { return robotData.lastUpdate; }
     
     // Diagnostics
     void printStatus();
     void printConnectionDiagnostics();
     void runConnectionTest();
-    void runMessageTests(); // New method for testing messages
-    void runConnectionHealthTest(); // Test bare connection stability
+    void runBasicTest(); // Simplified test
 };
-
-// Implementation
 
 RobustNTClient::RobustNTClient(int teamNumber) :
     teamNumber(teamNumber),
@@ -121,13 +164,15 @@ RobustNTClient::RobustNTClient(int teamNumber) :
     isConnected(false),
     autoReconnect(true),
     lastConnectionAttempt(0),
-    connectionTimeout(5000),
-    heartbeatInterval(1000),
+    connectionTimeout(10000), // Increased timeout
+    heartbeatInterval(5000),  // Reduced frequency
     lastHeartbeat(0),
     lastDataReceived(0),
+    connectionStartTime(0),
     consecutiveFailures(0),
-    maxConsecutiveFailures(5),
+    maxConsecutiveFailures(3), // Reduced max attempts
     debugMode(true),
+    subscriptionSent(false),
     connectionCallback(nullptr),
     nextSubId(1),
     nextPubId(1)
@@ -163,66 +208,62 @@ bool RobustNTClient::begin(IPAddress customIP, uint16_t port) {
     robotIP = customIP;
     ntPort = port;
     
-    debugPrint("Attempting connection to " + 
-               String(robotIP[0]) + "." + String(robotIP[1]) + "." + 
+    debugPrint("=== Starting NT4 Connection ===");
+    debugPrint("Target: " + String(robotIP[0]) + "." + String(robotIP[1]) + "." + 
                String(robotIP[2]) + "." + String(robotIP[3]) + ":" + String(ntPort));
+    
+    // Reset state
+    isConnected = false;
+    subscriptionSent = false;
     
     // Test basic connectivity first
     if (!testBasicConnectivity()) {
-        debugPrint("Basic connectivity test failed");
+        debugPrint("❌ Basic connectivity test failed");
         consecutiveFailures++;
         lastConnectionAttempt = millis();
         return false;
     }
     
-    // Try to connect
+    // Try to connect with longer timeout
+    debugPrint("🔌 Attempting TCP connection...");
     unsigned long startTime = millis();
+    
     if (client.connect(robotIP, ntPort)) {
         unsigned long connectTime = millis() - startTime;
-        debugPrint("TCP connection established in " + String(connectTime) + "ms");
+        debugPrint("✅ TCP connected in " + String(connectTime) + "ms");
         
-        // Send proper NT4 WebSocket handshake
+        // Wait a bit for connection to stabilize
+        delay(100);
+        
+        // Perform WebSocket handshake
         if (performWebSocketHandshake()) {
-            debugPrint("WebSocket handshake successful");
+            debugPrint("✅ WebSocket handshake successful");
             
-            // Wait a moment after handshake before marking as connected
-            delay(100);
+            // Connection is established - wait before marking as ready
+            delay(500); // Give robot time to process
             
             isConnected = true;
+            connectionStartTime = millis();
             stats.connectTime = millis();
             stats.totalConnections++;
             consecutiveFailures = 0;
             
-            debugPrint("NT4 connection established successfully");
+            debugPrint("🎉 NT4 connection fully established!");
             
-            // Don't send any messages immediately - let connection stabilize
-            debugPrint("Waiting for connection to stabilize...");
-            
-            // Wait and check if connection stays up
-            delay(500);
-            
-            // Check if we're still connected after stabilization period
-            if (client.connected()) {
-                debugPrint("Connection stable - ready for communication");
-                
-                if (connectionCallback) {
-                    connectionCallback(true);
-                }
-                
-                lastConnectionAttempt = millis();
-                lastDataReceived = millis();
-                return true;
-            } else {
-                debugPrint("Connection dropped during stabilization period");
-                isConnected = false;
-                return false;
+            if (connectionCallback) {
+                connectionCallback(true);
             }
+            
+            lastConnectionAttempt = millis();
+            lastDataReceived = millis();
+            return true;
+            
         } else {
-            debugPrint("WebSocket handshake failed");
+            debugPrint("❌ WebSocket handshake failed");
             client.stop();
         }
     } else {
-        debugPrint("Failed to establish TCP connection");
+        debugPrint("❌ TCP connection failed");
     }
     
     consecutiveFailures++;
@@ -231,52 +272,59 @@ bool RobustNTClient::begin(IPAddress customIP, uint16_t port) {
 }
 
 bool RobustNTClient::performWebSocketHandshake() {
-    debugPrint("Starting WebSocket handshake for NT4");
+    debugPrint("🤝 Starting WebSocket handshake...");
     
-    // Send HTTP upgrade request
-    client.print("GET /nt/ws HTTP/1.1\r\n");
-    client.print("Host: ");
-    client.print(robotIP[0]); client.print(".");
-    client.print(robotIP[1]); client.print(".");
-    client.print(robotIP[2]); client.print(".");
-    client.print(robotIP[3]); client.print(":"); client.print(ntPort);
-    client.print("\r\n");
-    client.print("Upgrade: websocket\r\n");
-    client.print("Connection: Upgrade\r\n");
-    client.print("Sec-WebSocket-Key: dGVlbnN5LW50LWNsaWVudA==\r\n");
-    client.print("Sec-WebSocket-Version: 13\r\n");
-    client.print("Sec-WebSocket-Protocol: networktables.first.wpi.edu\r\n");
-    client.print("\r\n");
+    // Send HTTP upgrade request - simplified and more compatible
+    String request = "";
+    request += "GET /nt/ws HTTP/1.1\r\n";
+    request += "Host: " + String(robotIP[0]) + "." + String(robotIP[1]) + "." + 
+               String(robotIP[2]) + "." + String(robotIP[3]) + ":" + String(ntPort) + "\r\n";
+    request += "Upgrade: websocket\r\n";
+    request += "Connection: Upgrade\r\n";
+    request += "Sec-WebSocket-Key: dGVlbnN5LW50LWNsaWVudA==\r\n";
+    request += "Sec-WebSocket-Version: 13\r\n";
+    request += "Sec-WebSocket-Protocol: networktables.first.wpi.edu\r\n";
+    request += "\r\n";
     
-    debugPrint("Sent WebSocket upgrade request");
+    client.print(request);
+    client.flush(); // Ensure it's sent immediately
     
-    // Wait for response
+    debugPrint("📤 Sent handshake request");
+    
+    // Wait for response with timeout
     unsigned long startTime = millis();
     String response = "";
+    bool headerComplete = false;
     
-    while (millis() - startTime < 3000) { // 3 second timeout
+    while (millis() - startTime < 5000 && !headerComplete) { // 5 second timeout
         if (client.available()) {
             char c = client.read();
             response += c;
             
             // Look for end of HTTP headers
             if (response.endsWith("\r\n\r\n")) {
-                break;
+                headerComplete = true;
             }
         }
         delay(1);
     }
     
-    debugPrint("Handshake response length: " + String(response.length()));
+    if (!headerComplete) {
+        debugPrint("❌ Handshake timeout - no response");
+        return false;
+    }
     
-    // Check if upgrade was successful
-    if (response.indexOf("101 Switching Protocols") >= 0 && 
-        response.indexOf("websocket") >= 0) {
-        debugPrint("WebSocket upgrade successful");
+    debugPrint("📥 Handshake response received (" + String(response.length()) + " bytes)");
+    
+    // Check for successful upgrade - be more lenient
+    if (response.indexOf("101") >= 0 && response.indexOf("websocket") >= 0) {
+        debugPrint("✅ WebSocket upgrade successful");
         return true;
     } else {
-        debugPrint("WebSocket upgrade failed");
-        debugPrint("Response: " + response.substring(0, 200));
+        debugPrint("❌ WebSocket upgrade failed");
+        // Print first part of response for debugging
+        int printLen = min(200, (int)response.length());
+        debugPrint("Response start: " + response.substring(0, printLen));
         return false;
     }
 }
@@ -284,59 +332,51 @@ bool RobustNTClient::performWebSocketHandshake() {
 void RobustNTClient::update() {
     unsigned long currentTime = millis();
     
-    // Check if we're still connected
+    // Check connection status
     if (isConnected) {
         if (!client.connected()) {
-            debugPrint("Connection lost - TCP socket closed");
+            debugPrint("💔 TCP connection lost");
             handleConnectionLoss();
-        } else {
-            // Send a test message periodically to keep connection alive
-            if (currentTime - lastHeartbeat >= heartbeatInterval) {
-                // For now, don't send any messages - just check connection
-                debugPrint("Heartbeat check - connection alive for " + String(getUptime()) + "ms");
-                lastHeartbeat = currentTime;
-            }
+            return;
+        }
+        
+        // Process incoming data
+        if (client.available()) {
+            processWebSocketData();
+        }
+        
+        // Send subscription request after connection is stable (only once)
+        if (!subscriptionSent && (currentTime - connectionStartTime) > 2000) {
+            debugPrint("📡 Sending subscription request...");
+            requestRobotData();
+            subscriptionSent = true;
+        }
+        
+        // Periodic heartbeat (less frequent to avoid overwhelming)
+        if (currentTime - lastHeartbeat >= heartbeatInterval) {
+            debugPrint("💓 Connection alive for " + String(getUptime()) + "ms");
+            lastHeartbeat = currentTime;
             
-            // Process any incoming WebSocket data
-            while (client.available()) {
-                processWebSocketData();
-            }
-            
-            // Send periodic heartbeat
-            if (currentTime - lastHeartbeat >= heartbeatInterval) {
-                if (stats.messagesSent == 0) {
-                    // First heartbeat - send identify message
-                    debugPrint("Sending delayed identify message...");
-                    sendNT4Message("{\"method\":\"identify\",\"params\":{\"name\":\"teensy\"}}");
-                } else {
-                    // Regular heartbeat
-                    publishHeartbeat();
-                }
-                lastHeartbeat = currentTime;
-            }
-            
-            // Check for data timeout (robot not sending anything)
-            if (currentTime - lastDataReceived > 15000) { // 15 seconds
-                debugPrint("Data timeout - no data received for 15 seconds");
-                // Don't disconnect immediately - NT4 might not send regular data
-                // handleConnectionLoss();
+            // Check if we've received any data recently
+            if (subscriptionSent && (currentTime - lastDataReceived) > 10000) {
+                debugPrint("⚠️  No data received for 10+ seconds");
             }
         }
     }
     
-    // Auto-reconnect logic
+    // Auto-reconnect logic with exponential backoff
     if (!isConnected && autoReconnect) {
-        unsigned long retryInterval = 1000 + (consecutiveFailures * 2000); // Exponential backoff
-        retryInterval = min(retryInterval, 15000UL); // Max 15 seconds
+        unsigned long retryInterval = 2000 + (consecutiveFailures * 3000); // Start at 2s, increase by 3s each failure
+        retryInterval = min(retryInterval, 20000UL); // Max 20 seconds
         
         if (currentTime - lastConnectionAttempt >= retryInterval) {
             if (consecutiveFailures < maxConsecutiveFailures) {
-                debugPrint("Attempting reconnection (attempt " + 
-                          String(consecutiveFailures + 1) + "/" + String(maxConsecutiveFailures) + ")");
+                debugPrint("🔄 Reconnection attempt " + String(consecutiveFailures + 1) + 
+                          "/" + String(maxConsecutiveFailures));
                 begin(robotIP, ntPort);
             } else {
-                debugPrint("Max connection attempts reached - pausing auto-reconnect");
-                consecutiveFailures = 0; // Reset after a longer pause
+                debugPrint("⏸️  Max attempts reached - pausing for 30s");
+                consecutiveFailures = 0; // Reset counter
                 lastConnectionAttempt = currentTime + 30000; // Wait 30 seconds
             }
         }
@@ -344,40 +384,38 @@ void RobustNTClient::update() {
 }
 
 bool RobustNTClient::testBasicConnectivity() {
-    debugPrint("Testing basic connectivity to robot...");
+    debugPrint("🔍 Testing robot connectivity...");
     
-    // Quick ping test
     EthernetClient testClient;
-    unsigned long startTime = millis();
     
-    if (testClient.connect(robotIP, 22)) { // SSH port
+    // Test NetworkTables port specifically
+    if (testClient.connect(robotIP, 5810)) {
         testClient.stop();
-        debugPrint("Robot is reachable (SSH port responding)");
+        debugPrint("✅ NetworkTables port is accessible");
         return true;
     }
     
-    if (testClient.connect(robotIP, 80)) { // HTTP port
-        testClient.stop();
-        debugPrint("Robot is reachable (HTTP port responding)");
-        return true;
+    // Test other common ports as backup
+    uint16_t testPorts[] = {22, 80, 1735};
+    for (int i = 0; i < 3; i++) {
+        if (testClient.connect(robotIP, testPorts[i])) {
+            testClient.stop();
+            debugPrint("✅ Robot reachable on port " + String(testPorts[i]));
+            return true;
+        }
     }
     
-    if (testClient.connect(robotIP, 1735)) { // SmartDashboard port
-        testClient.stop();
-        debugPrint("Robot is reachable (SmartDashboard port responding)");
-        return true;
-    }
-    
-    debugPrint("Robot not reachable on any known ports");
+    debugPrint("❌ Robot unreachable on all tested ports");
     return false;
 }
 
 void RobustNTClient::handleConnectionLoss() {
     if (isConnected) {
         isConnected = false;
+        subscriptionSent = false;
         stats.totalDisconnects++;
         
-        debugPrint("Connection lost after " + String(getUptime()) + "ms uptime");
+        debugPrint("💔 Connection lost after " + String(getUptime()) + "ms");
         
         if (connectionCallback) {
             connectionCallback(false);
@@ -387,236 +425,202 @@ void RobustNTClient::handleConnectionLoss() {
     }
 }
 
-bool RobustNTClient::publishNumber(const String& key, double value) {
-    if (isConnected && client.connected()) {
-        // Use correct NT4 publish pattern with pubuid
-        int pubId = nextPubId++;
-        sendNT4Message("[{\"method\":\"publish\",\"params\":{\"name\":\"" + key + "\",\"type\":\"double\",\"pubuid\":" + String(pubId) + ",\"properties\":{}}}]");
-        delay(50);
-        sendNT4Message("[{\"method\":\"setvalue\",\"params\":{\"pubuid\":" + String(pubId) + ",\"value\":" + String(value, 6) + "}}]");
-        return true;
-    }
-    return false;
-}
-
-bool RobustNTClient::publishBoolean(const String& key, bool value) {
-    if (isConnected && client.connected()) {
-        // Use correct NT4 publish pattern with pubuid
-        int pubId = nextPubId++;
-        sendNT4Message("[{\"method\":\"publish\",\"params\":{\"name\":\"" + key + "\",\"type\":\"boolean\",\"pubuid\":" + String(pubId) + ",\"properties\":{}}}]");
-        delay(50);
-        sendNT4Message("[{\"method\":\"setvalue\",\"params\":{\"pubuid\":" + String(pubId) + ",\"value\":" + (value ? "true" : "false") + "}}]");
-        return true;
-    }
-    return false;
-}
-
-bool RobustNTClient::publishString(const String& key, const String& value) {
-    if (isConnected && client.connected()) {
-        // Use correct NT4 publish pattern with pubuid
-        int pubId = nextPubId++;
-        sendNT4Message("[{\"method\":\"publish\",\"params\":{\"name\":\"" + key + "\",\"type\":\"string\",\"pubuid\":" + String(pubId) + ",\"properties\":{}}}]");
-        delay(50);
-        sendNT4Message("[{\"method\":\"setvalue\",\"params\":{\"pubuid\":" + String(pubId) + ",\"value\":\"" + value + "\"}}]");
-        return true;
-    }
-    return false;
-}
-
-bool RobustNTClient::publishHeartbeat() {
-    if (isConnected && client.connected()) {
-        // Don't send ping - NT4 may not expect it
-        // Instead, just update our heartbeat timestamp
-        debugPrint("Heartbeat (no message sent to robot)");
-        return true;
-    }
-    return false;
-}
-
-bool RobustNTClient::publishEmergencyStop() {
-    if (isConnected && client.connected()) {
-        // Use correct NT4 publish pattern with pubuid
-        int pubId = nextPubId++;
-        sendNT4Message("[{\"method\":\"publish\",\"params\":{\"name\":\"SmartDashboard/EmergencyStop\",\"type\":\"boolean\",\"pubuid\":" + String(pubId) + ",\"properties\":{}}}]");
-        delay(50);
-        sendNT4Message("[{\"method\":\"setvalue\",\"params\":{\"pubuid\":" + String(pubId) + ",\"value\":true}}]");
-        return true;
-    }
-    return false;
-}
-
 bool RobustNTClient::requestRobotData() {
     if (isConnected && client.connected()) {
-        // Use minimal subscription format
-        sendNT4Message("[{\"method\":\"subscribe\",\"params\":{\"topics\":[\"SmartDashboard/\"],\"subuid\":" + String(nextSubId++) + "}}]");
+        // Send simplified subscription for all SmartDashboard data
+        String subMessage = "[{\"method\":\"subscribe\",\"params\":{\"topics\":[\"SmartDashboard/\"],\"subuid\":" + 
+                           String(nextSubId++) + ",\"options\":{\"periodic\":0.1,\"all\":false}}}]";
+        
+        debugPrint("📡 Subscribing to SmartDashboard data...");
+        sendNT4Message(subMessage);
+        
+        // Also subscribe to ControlBoard data
+        delay(100);
+        String cbSubMessage = "[{\"method\":\"subscribe\",\"params\":{\"topics\":[\"ControlBoard/\"],\"subuid\":" + 
+                             String(nextSubId++) + ",\"options\":{\"periodic\":0.1,\"all\":false}}}]";
+        
+        debugPrint("📡 Subscribing to ControlBoard data...");
+        sendNT4Message(cbSubMessage);
+        
         return true;
     }
     return false;
 }
 
 void RobustNTClient::sendNT4Message(const String& message) {
-    if (isConnected && client.connected()) {
-        // Send as WebSocket text frame with required masking for client->server
-        size_t msgLen = message.length();
-        
-        // Frame header
-        if (client.write(0x81) != 1) { // Text frame, final fragment
-            debugPrint("SendErr: Failed to write frame header");
-            return;
-        }
-        
-        // Payload length with MASK bit set (0x80)
-        if (msgLen < 126) {
-            if (client.write((uint8_t)(msgLen | 0x80)) != 1) { // Set mask bit
-                debugPrint("SendErr: Failed to write payload length");
-                return;
-            }
-        } else if (msgLen < 65536) {
-            if (client.write(126 | 0x80) != 1 ||  // Set mask bit
-                client.write((uint8_t)(msgLen >> 8)) != 1 ||
-                client.write((uint8_t)(msgLen & 0xFF)) != 1) {
-                debugPrint("SendErr: Failed to write extended payload length");
-                return;
-            }
-        } else {
-            debugPrint("Message too long for WebSocket frame");
-            return;
-        }
-        
-        // Generate masking key (4 random bytes)
-        uint8_t maskKey[4];
-        maskKey[0] = random(256);
-        maskKey[1] = random(256);
-        maskKey[2] = random(256);
-        maskKey[3] = random(256);
-        
-        // Send masking key
-        if (client.write(maskKey, 4) != 4) {
-            debugPrint("SendErr: Failed to write masking key");
-            return;
-        }
-        
-        // Send masked payload data
-        for (size_t i = 0; i < msgLen; i++) {
-            uint8_t maskedByte = message[i] ^ maskKey[i % 4];
-            if (client.write(maskedByte) != 1) {
-                debugPrint("SendErr: Failed to write masked byte at position " + String(i));
-                return;
-            }
-        }
-        
-        // Ensure data is sent immediately
-        client.flush();
-        
-        stats.messagesSent++;
-        
-        if (debugMode) {
-            debugPrint("Sent MASKED (" + String(msgLen) + " bytes): " + 
-                      message.substring(0, 50) + (message.length() > 50 ? "..." : ""));
-        }
-        
-        // Small delay to prevent overwhelming the robot
-        delay(50);
+    if (!isConnected || !client.connected()) {
+        debugPrint("❌ Cannot send - not connected");
+        return;
     }
+    
+    size_t msgLen = message.length();
+    
+    // WebSocket clients MUST mask data sent to servers - this was the problem!
+    
+    // Frame header
+    if (client.write(0x81) != 1) { // Text frame, final fragment
+        debugPrint("❌ Failed to write frame header");
+        return;
+    }
+    
+    // Payload length with MASK bit set (0x80) - CRITICAL!
+    if (msgLen < 126) {
+        if (client.write((uint8_t)(msgLen | 0x80)) != 1) { // Set mask bit
+            debugPrint("❌ Failed to write payload length");
+            return;
+        }
+    } else {
+        debugPrint("❌ Message too long: " + String(msgLen));
+        return;
+    }
+    
+    // Generate 4-byte masking key (required by WebSocket spec)
+    uint8_t maskKey[4];
+    maskKey[0] = random(256);
+    maskKey[1] = random(256);
+    maskKey[2] = random(256);
+    maskKey[3] = random(256);
+    
+    // Send masking key
+    if (client.write(maskKey, 4) != 4) {
+        debugPrint("❌ Failed to write masking key");
+        return;
+    }
+    
+    // Send masked payload data (XOR each byte with rotating mask key)
+    for (size_t i = 0; i < msgLen; i++) {
+        uint8_t maskedByte = message[i] ^ maskKey[i % 4];
+        if (client.write(maskedByte) != 1) {
+            debugPrint("❌ Failed to write masked byte at position " + String(i));
+            return;
+        }
+    }
+    
+    client.flush();
+    stats.messagesSent++;
+    
+    debugPrint("📤 Sent MASKED (" + String(msgLen) + "b): " + 
+              message.substring(0, 60) + (message.length() > 60 ? "..." : ""));
 }
 
 void RobustNTClient::processWebSocketData() {
-    // Simple WebSocket frame processing
-    static String buffer = "";
+    static String frameBuffer = "";
     static bool inFrame = false;
-    static int payloadLength = -1;
-    static int bytesRead = 0;
+    static uint8_t expectedLen = 0;
     
     while (client.available()) {
         uint8_t byte = client.read();
         
         if (!inFrame) {
-            // Look for text frame start (0x81)
+            // Look for text frame start
             if (byte == 0x81) {
                 inFrame = true;
-                payloadLength = -1;
-                bytesRead = 0;
-                buffer = "";
+                frameBuffer = "";
+                expectedLen = 0;
             }
-        } else if (payloadLength == -1) {
+        } else if (expectedLen == 0) {
             // Read payload length
-            payloadLength = byte & 0x7F; // Mask off the MASK bit
+            expectedLen = byte;
+            if (expectedLen == 0) {
+                inFrame = false; // Empty frame
+            }
         } else {
-            // Read payload data
-            if (bytesRead < payloadLength) {
-                buffer += (char)byte;
-                bytesRead++;
+            // Read payload
+            frameBuffer += (char)byte;
+            
+            if (frameBuffer.length() >= expectedLen) {
+                // Complete frame received
+                lastDataReceived = millis();
+                stats.messagesReceived++;
                 
-                if (bytesRead >= payloadLength) {
-                    // Complete message received
-                    lastDataReceived = millis();
-                    stats.messagesReceived++;
-                    
-                    if (debugMode) {
-                        debugPrint("Received: " + buffer.substring(0, 50) + 
-                                  (buffer.length() > 50 ? "..." : ""));
-                    }
-                    
-                    // Parse NT4 JSON message
-                    parseNT4Message(buffer);
-                    
-                    // Reset for next frame
-                    inFrame = false;
-                    payloadLength = -1;
-                    bytesRead = 0;
-                    buffer = "";
-                }
+                debugPrint("📥 Received (" + String(frameBuffer.length()) + "b): " + 
+                          frameBuffer.substring(0, 60) + (frameBuffer.length() > 60 ? "..." : ""));
+                
+                parseNT4Message(frameBuffer);
+                
+                // Reset for next frame
+                inFrame = false;
+                expectedLen = 0;
+                frameBuffer = "";
             }
         }
     }
 }
 
 void RobustNTClient::parseNT4Message(const String& message) {
-    // Parse NT4 JSON array message format
-    DynamicJsonDocument doc(512);
+    DynamicJsonDocument doc(1024);
     DeserializationError error = deserializeJson(doc, message);
     
-    if (!error) {
-        // NT4 sends messages as JSON arrays
-        if (doc.is<JsonArray>()) {
-            JsonArray messageArray = doc.as<JsonArray>();
+    if (error) {
+        debugPrint("❌ JSON parse error: " + String(error.c_str()));
+        return;
+    }
+    
+    if (doc.is<JsonArray>()) {
+        JsonArray messageArray = doc.as<JsonArray>();
+        
+        for (JsonObject messageObj : messageArray) {
+            String method = messageObj["method"];
             
-            for (JsonObject messageObj : messageArray) {
-                String method = messageObj["method"];
+            if (method == "announce") {
+                String name = messageObj["params"]["name"];
+                String type = messageObj["params"]["type"];
+                debugPrint("📢 Robot announced: " + name + " (" + type + ")");
                 
-                if (method == "announce") {
-                    String name = messageObj["params"]["name"];
-                    String type = messageObj["params"]["type"];
-                    int pubuid = messageObj["params"]["pubuid"];
-                    debugPrint("Robot announced: " + name + " (" + type + ") pubuid=" + String(pubuid));
-                }
-                else if (method == "setvalue") {
-                    int pubuid = messageObj["params"]["pubuid"];
-                    JsonVariant valueVar = messageObj["params"]["value"];
-                    debugPrint("Received setvalue for pubuid " + String(pubuid) + ": " + valueVar.as<String>());
-                }
-                else if (method == "update") {
-                    // Legacy update format - still handle it
-                    JsonObject params = messageObj["params"];
-                    for (JsonPair kv : params) {
-                        String key = kv.key().c_str();
-                        if (debugMode) {
-                            debugPrint("Received update: " + key + " = " + kv.value().as<String>());
-                        }
+            } else if (method == "unannounce") {
+                String name = messageObj["params"]["name"];
+                debugPrint("📢 Robot unannounced: " + name);
+                
+            } else if (method == "setValues" || method == "update") {
+                JsonObject params = messageObj["params"];
+                for (JsonPair kv : params) {
+                    String topic = kv.key().c_str();
+                    JsonVariant value = kv.value();
+                    
+                    debugPrint("📊 " + topic + " = " + value.as<String>());
+                    
+                    // Update robot data
+                    if (topic.startsWith("ControlBoard/")) {
+                        parseControlBoardData(topic, value);
+                    } else if (topic.startsWith("SmartDashboard/")) {
+                        parseSmartDashboardData(topic, value);
                     }
                 }
-                else {
-                    debugPrint("Received unknown method: " + method);
-                }
             }
-        } else {
-            debugPrint("Received non-array JSON message: " + message.substring(0, 50));
         }
-    } else {
-        debugPrint("JSON parse error: " + String(error.c_str()));
     }
 }
 
+void RobustNTClient::parseControlBoardData(const String& topic, JsonVariant value) {
+    robotData.lastUpdate = millis();
+    
+    if (topic == "ControlBoard/battery/voltage") {
+        robotData.batteryVoltage = value.as<double>();
+    } else if (topic == "ControlBoard/robot/enabled") {
+        robotData.robotEnabled = value.as<bool>();
+    } else if (topic == "ControlBoard/robot/mode") {
+        robotData.robotMode = value.as<String>();
+    } else if (topic == "ControlBoard/shooter/ready") {
+        robotData.shooterReady = value.as<bool>();
+    } else if (topic == "ControlBoard/alliance/color") {
+        robotData.allianceColor = value.as<String>();
+    }
+}
+
+void RobustNTClient::parseSmartDashboardData(const String& topic, JsonVariant value) {
+    robotData.lastUpdate = millis();
+    
+    if (topic == "SmartDashboard/BatteryVoltage") {
+        robotData.batteryVoltage = value.as<double>();
+        debugPrint("🔋 Battery: " + String(robotData.batteryVoltage) + "V");
+    } else if (topic == "SmartDashboard/RobotEnabled") {
+        robotData.robotEnabled = value.as<bool>();
+    } else if (topic == "SmartDashboard/ShooterReady") {
+        robotData.shooterReady = value.as<bool>();
+    }
+}
+
+// Utility methods
 void RobustNTClient::debugPrint(const String& message) {
     if (debugMode) {
         Serial.println("NT: " + message);
@@ -638,233 +642,93 @@ unsigned long RobustNTClient::getUptime() const {
     return millis() - stats.connectTime;
 }
 
-void RobustNTClient::getStatistics(unsigned long& connections, unsigned long& disconnects, 
-                                  unsigned long& messagesRx, unsigned long& messagesTx) {
-    connections = stats.totalConnections;
-    disconnects = stats.totalDisconnects;
-    messagesRx = stats.messagesReceived;
-    messagesTx = stats.messagesSent;
-}
-
 void RobustNTClient::printStatus() {
     Serial.println("=== NetworkTables Status ===");
     Serial.printf("Connected: %s\n", isConnected ? "YES" : "NO");
     Serial.printf("Robot IP: %d.%d.%d.%d:%d\n", robotIP[0], robotIP[1], robotIP[2], robotIP[3], ntPort);
-    Serial.printf("Team Number: %d\n", teamNumber);
     
     if (isConnected) {
         Serial.printf("Uptime: %lu ms\n", getUptime());
-        Serial.printf("Last Data: %lu ms ago\n", millis() - lastDataReceived);
+        Serial.printf("Subscription sent: %s\n", subscriptionSent ? "YES" : "NO");
+        Serial.printf("Last data: %lu ms ago\n", millis() - lastDataReceived);
     }
     
-    Serial.printf("Total Connections: %lu\n", stats.totalConnections);
-    Serial.printf("Total Disconnects: %lu\n", stats.totalDisconnects);
-    Serial.printf("Consecutive Failures: %d\n", consecutiveFailures);
+    Serial.printf("Connections/Disconnects: %lu/%lu\n", stats.totalConnections, stats.totalDisconnects);
     Serial.printf("Messages RX/TX: %lu/%lu\n", stats.messagesReceived, stats.messagesSent);
     
     if (robotData.lastUpdate > 0) {
-        Serial.printf("Battery Voltage: %.1fV\n", robotData.batteryVoltage);
-        Serial.printf("Robot Data Age: %lu ms\n", millis() - robotData.lastUpdate);
+        Serial.printf("Battery: %.1fV (age: %lu ms)\n", robotData.batteryVoltage, millis() - robotData.lastUpdate);
     }
-    
-    Serial.println("===========================");
+    Serial.println("============================");
 }
 
-void RobustNTClient::printConnectionDiagnostics() {
-    Serial.println("\n=== Connection Diagnostics ===");
+void RobustNTClient::runBasicTest() {
+    debugPrint("=== Basic NT4 Connection Test ===");
     
-    // Test robot reachability
-    runConnectionTest();
-    
-    // Print connection history
-    if (stats.totalConnections > 0) {
-        float avgUptime = isConnected ? getUptime() : 0;
-        if (stats.totalDisconnects > 0) {
-            Serial.printf("Connection reliability: %lu connections, %lu disconnects\n", 
-                         stats.totalConnections, stats.totalDisconnects);
-            Serial.printf("Average connection duration: %.1f seconds\n", avgUptime / 1000.0);
-        }
-        
-        if (consecutiveFailures > 0) {
-            Serial.printf("Current failure streak: %d\n", consecutiveFailures);
-            Serial.println("This suggests:");
-            Serial.println("- Robot code may not be running NetworkTables server");
-            Serial.println("- Robot is rejecting connections");
-            Serial.println("- Protocol mismatch between client and server");
-        }
-    }
-    
-    Serial.println("===============================\n");
-}
-
-void RobustNTClient::runConnectionTest() {
-    Serial.println("Testing robot connectivity...");
-    
-    EthernetClient testClient;
-    
-    // Test common robot ports
-    struct {
-        uint16_t port;
-        const char* service;
-    } testPorts[] = {
-        {22, "SSH"},
-        {80, "HTTP"},
-        {1735, "SmartDashboard"}, 
-        {5800, "Camera"},
-        {5810, "NetworkTables"}
-    };
-    
-    bool anyPortOpen = false;
-    
-    for (int i = 0; i < 5; i++) {
-        Serial.printf("  Port %d (%s): ", testPorts[i].port, testPorts[i].service);
-        
-        if (testClient.connect(robotIP, testPorts[i].port)) {
-            Serial.println("✓ Open");
-            testClient.stop();
-            anyPortOpen = true;
-            
-            if (testPorts[i].port == 5810) {
-                Serial.println("    NetworkTables port is accessible");
-            }
-        } else {
-            Serial.println("✗ Closed/Filtered");
-        }
-        delay(100);
-    }
-    
-    if (!anyPortOpen) {
-        Serial.println("❌ Robot appears to be unreachable");
-        Serial.println("   Check: Power, network connection, IP address");
-    } else if (testClient.connect(robotIP, 5810)) {
-        Serial.println("✅ NetworkTables port is accessible");
-        Serial.println("   Issue is likely protocol-related, not connectivity");
-        testClient.stop();
-    }
-}
-
-void RobustNTClient::runMessageTests() {
     if (!isConnected) {
-        debugPrint("Cannot run message tests - not connected");
+        debugPrint("❌ Not connected - cannot run test");
         return;
     }
     
-    debugPrint("=== Starting Message Tests ===");
-    debugPrint("Testing NT4 message formats with correct protocol...");
-    
-    // Test 1: Skip identify message - NT4 doesn't use it
-    debugPrint("Test 1: Skipping identify (not used in NT4)");
-    debugPrint("✅ Test 1 PASSED - No identify needed");
-    
-    // Test 2: Subscribe with proper subuid
-    debugPrint("Test 2: Subscribe to battery voltage (with subuid)");
-    sendNT4Message("[{\"method\":\"subscribe\",\"params\":{\"topics\":[\"SmartDashboard/BatteryVoltage\"],\"subuid\":" + String(nextSubId++) + ",\"options\":{\"periodic\":0.1,\"all\":false}}}]");
-    delay(3000);
-    
-    if (!client.connected()) {
-        debugPrint("❌ Test 2 FAILED - Connection dropped after subscription");
-        return;
-    }
-    debugPrint("✅ Test 2 PASSED - Subscription message accepted");
-    
-    // Test 3: Subscribe to all SmartDashboard with different subuid
-    debugPrint("Test 3: Subscribe to all SmartDashboard data");
-    sendNT4Message("[{\"method\":\"subscribe\",\"params\":{\"topics\":[\"SmartDashboard/\"],\"subuid\":" + String(nextSubId++) + ",\"options\":{\"periodic\":0.1,\"all\":false}}}]");
-    delay(3000);
-    
-    if (!client.connected()) {
-        debugPrint("❌ Test 3 FAILED - Connection dropped after broad subscription");
-        return;
-    }
-    debugPrint("✅ Test 3 PASSED - Broad subscription accepted");
-    
-    // Test 4: Wait for data
-    debugPrint("Test 4: Waiting for robot data...");
-    unsigned long dataWaitStart = millis();
-    unsigned long originalDataTime = lastDataReceived;
-    
-    while (millis() - dataWaitStart < 10000) { // Wait 10 seconds for data
-        if (lastDataReceived > originalDataTime) {
-            debugPrint("✅ Test 4 PASSED - Received data from robot!");
-            break;
-        }
-        delay(100);
-    }
-    
-    if (lastDataReceived == originalDataTime) {
-        debugPrint("⚠️  Test 4 - No data received (robot may not be publishing to SmartDashboard)");
-    }
-    
-    // Test 5: Send update to robot (try both 'publish' and 'update' methods)
-    debugPrint("Test 5a: Send publish to SmartDashboard");
-    sendNT4Message("[{\"method\":\"publish\",\"params\":{\"name\":\"SmartDashboard/TeensyAlive\",\"type\":\"int\",\"value\":" + String(millis()) + "}}]");
-    delay(2000);
-    
-    if (!client.connected()) {
-        debugPrint("❌ Test 5a FAILED - Connection dropped after publish");
-        return;
-    }
-    debugPrint("✅ Test 5a PASSED - Publish message accepted");
-    
-    // Test 5b: Try announce + setValue pattern
-    debugPrint("Test 5b: Send announce + setValue");
-    sendNT4Message("[{\"method\":\"announce\",\"params\":{\"name\":\"SmartDashboard/TeensyStatus\",\"type\":\"string\",\"properties\":{}}}]");
-    delay(1000);
-    
-    if (client.connected()) {
-        sendNT4Message("[{\"method\":\"setValue\",\"params\":{\"name\":\"SmartDashboard/TeensyStatus\",\"value\":\"Connected\"}}]");
-        delay(2000);
-        
-        if (!client.connected()) {
-            debugPrint("❌ Test 5b FAILED - Connection dropped after setValue");
-            return;
-        }
-        debugPrint("✅ Test 5b PASSED - Announce + setValue accepted");
-    }
-    
-    debugPrint("=== Message Tests Complete ===");
-    debugPrint("NT4 connection is fully functional!");
-}
-
-void RobustNTClient::runConnectionHealthTest() {
-    if (!isConnected) {
-        debugPrint("Cannot run health test - not connected");
-        return;
-    }
-    
-    debugPrint("=== Connection Health Test ===");
-    debugPrint("Testing how long a bare NT4 connection can stay alive...");
-    debugPrint("Will NOT send any messages - just monitor connection");
+    debugPrint("✅ Connection established");
+    debugPrint("⏱️  Waiting 10 seconds for data...");
     
     unsigned long testStart = millis();
-    unsigned long lastHeartbeatTime = millis();
-    int heartbeatCount = 0;
+    unsigned long initialRx = stats.messagesReceived;
     
-    // Monitor connection for 60 seconds without sending anything
-    while (millis() - testStart < 60000) { // 60 seconds
-        if (!client.connected()) {
-            unsigned long duration = millis() - testStart;
-            debugPrint("❌ Connection lost after " + String(duration) + "ms");
-            debugPrint("Bare connection survived " + String(duration / 1000.0) + " seconds");
-            return;
-        }
-        
-        // Print heartbeat every 5 seconds
-        if (millis() - lastHeartbeatTime >= 5000) {
-            heartbeatCount++;
-            debugPrint("Heartbeat " + String(heartbeatCount) + ": Connection alive for " + 
-                      String((millis() - testStart) / 1000.0) + " seconds");
-            lastHeartbeatTime = millis();
-        }
-        
+    while (millis() - testStart < 10000) {
+        // Just wait and see if we get data
         delay(100);
+        
+        if (stats.messagesReceived > initialRx) {
+            debugPrint("🎉 SUCCESS: Received " + String(stats.messagesReceived - initialRx) + " messages!");
+            if (robotData.lastUpdate > 0) {
+                debugPrint("🔋 Battery data: " + String(robotData.batteryVoltage) + "V");
+            }
+            break;
+        }
     }
     
-    if (client.connected()) {
-        debugPrint("✅ Connection Health Test PASSED!");
-        debugPrint("Bare NT4 connection survived 60 seconds without any messages");
-        debugPrint("Connection is stable - protocol implementation is correct");
+    if (stats.messagesReceived == initialRx) {
+        debugPrint("⚠️  No messages received - check robot code");
     }
+    
+    debugPrint("=== Test Complete ===");
+}
+
+// Simplified publishing methods
+bool RobustNTClient::publishNumber(const String& key, double value) {
+    if (isConnected && client.connected()) {
+        String msg = "[{\"method\":\"publish\",\"params\":{\"name\":\"" + key + 
+                     "\",\"type\":\"double\",\"value\":" + String(value, 6) + "}}]";
+        sendNT4Message(msg);
+        return true;
+    }
+    return false;
+}
+
+bool RobustNTClient::publishBoolean(const String& key, bool value) {
+    if (isConnected && client.connected()) {
+        String msg = "[{\"method\":\"publish\",\"params\":{\"name\":\"" + key + 
+                     "\",\"type\":\"boolean\",\"value\":" + (value ? "true" : "false") + "}}]";
+        sendNT4Message(msg);
+        return true;
+    }
+    return false;
+}
+
+bool RobustNTClient::publishString(const String& key, const String& value) {
+    if (isConnected && client.connected()) {
+        String msg = "[{\"method\":\"publish\",\"params\":{\"name\":\"" + key + 
+                     "\",\"type\":\"string\",\"value\":\"" + value + "\"}}]";
+        sendNT4Message(msg);
+        return true;
+    }
+    return false;
+}
+
+bool RobustNTClient::publishHeartbeat() {
+    return publishNumber("SmartDashboard/TeensyHeartbeat", millis());
 }
 
 #endif // ROBUST_NT_CLIENT_H

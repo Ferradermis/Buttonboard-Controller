@@ -5,6 +5,7 @@ package frc.robot;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.PowerDistribution;
+import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableInstance;
 
@@ -34,7 +35,7 @@ public class Robot extends TimedRobot {
         // Configure real data suppliers (replace with your actual subsystems)
         telemetryServer.setBatteryVoltageSupplier(() -> {
             // Replace with actual battery reading
-            return 11.75; // or pdp.getVoltage() if you have a PDP
+            return RobotController.getBatteryVoltage(); // or pdp.getVoltage() if you have a PDP
         });
         
         // Example: Connect to real shooter subsystem

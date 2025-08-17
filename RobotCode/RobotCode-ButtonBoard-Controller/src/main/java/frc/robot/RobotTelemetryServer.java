@@ -11,12 +11,15 @@ import java.util.function.Supplier;
 
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.RobotController;
 
 /**
  * UDP Telemetry Server for Robot
  * 
  * Provides simple UDP-based telemetry broadcasting to control boards,
  * driver stations, and other clients. Much simpler than NetworkTables!
+ * 
+ * Only sends packets when data changes or on heartbeat interval.
  */
 public class RobotTelemetryServer {
     
@@ -29,11 +32,11 @@ public class RobotTelemetryServer {
     private Set<String> knownClients = new HashSet<>();
     
     // Telemetry data suppliers (lambda functions to get current values)
-    private Supplier<Double> batteryVoltageSupplier = () -> 11.75; // Default hardcoded
-    private Supplier<Boolean> shooterReadySupplier = () -> Math.random() > 0.5;
-    private Supplier<Integer> shooterSpeedSupplier = () -> (int)(Math.random() * 5000);
-    private Supplier<Boolean> intakeDeployedSupplier = () -> Math.random() > 0.7;
-    private Supplier<Double> intakePositionSupplier = () -> Math.random();
+    private Supplier<Double> batteryVoltageSupplier = () -> RobotController.getBatteryVoltage(); // Use RIO voltage
+    private Supplier<Boolean> shooterReadySupplier = () -> false;  // Fixed for testing
+    private Supplier<Integer> shooterSpeedSupplier = () -> 0;      // Fixed for testing
+    private Supplier<Boolean> intakeDeployedSupplier = () -> false; // Fixed for testing
+    private Supplier<Double> intakePositionSupplier = () -> 0.0;    // Fixed for testing
     private Supplier<String> autoModeSupplier = () -> "Center";
     private Supplier<Integer> autoModeNumberSupplier = () -> 1;
     private Supplier<String> statusMessageSupplier = () -> "Robot Running";
@@ -41,10 +44,113 @@ public class RobotTelemetryServer {
     // Network configuration
     private static final int TELEMETRY_PORT = 5574;
     private static final int DISCOVERY_PORT = 5575;
-    private static final int BROADCAST_INTERVAL_MS = 100; // 10Hz
+    private static final int CHECK_INTERVAL_MS = 100; // Check for changes every 100ms
+    private static final int HEARTBEAT_INTERVAL_MS = 5000; // Force send every 5 seconds
+    
+    // State tracking for send-on-change
+    private TelemetryState previousState = new TelemetryState();
+    private long lastForcedSendTime = 0;
+    private boolean forceNextSend = false;
     
     public RobotTelemetryServer(int teamNumber) {
         this.teamNumber = teamNumber;
+    }
+    
+    /**
+     * Tracks previous telemetry values to detect changes
+     */
+    private static class TelemetryState {
+        double timestamp = -1;
+        
+        // Battery
+        double batteryVoltage = -1;
+        boolean batteryIsLow = false;
+        
+        // Robot state
+        boolean robotEnabled = false;
+        boolean isAutonomous = false;
+        boolean isTeleop = false;
+        String robotMode = "";
+        
+        // Alliance
+        String allianceColor = "";
+        boolean isRedAlliance = false;
+        
+        // Match
+        double matchTimeRemaining = -1;
+        
+        // Subsystems
+        boolean shooterReady = false;
+        int shooterSpeed = -1;
+        boolean intakeDeployed = false;
+        double intakePosition = -1;
+        
+        // Auto
+        String autoMode = "";
+        int autoModeNumber = -1;
+        
+        // Status
+        String statusMessage = "";
+        int heartbeat = -1;
+        
+        /**
+         * Compare this state with current values and return true if anything changed
+         * NOTE: Ignores timestamp and heartbeat since they always change
+         */
+        boolean hasChanges(double currentTimestamp, double batteryVolt, boolean batteryLow,
+                          boolean enabled, boolean auto, boolean teleop, String mode,
+                          String alliance, boolean isRed, double matchTime,
+                          boolean shootReady, int shootSpeed, boolean intakeDepl, double intakePos,
+                          String autoMd, int autoNum, String statusMsg, int hb) {
+            
+            return Math.abs(batteryVoltage - batteryVolt) > 0.01 ||
+                   batteryIsLow != batteryLow ||
+                   robotEnabled != enabled ||
+                   isAutonomous != auto ||
+                   isTeleop != teleop ||
+                   !robotMode.equals(mode) ||
+                   !allianceColor.equals(alliance) ||
+                   isRedAlliance != isRed ||
+                   Math.abs(matchTimeRemaining - matchTime) > 0.1 ||
+                   shooterReady != shootReady ||
+                   shooterSpeed != shootSpeed ||
+                   intakeDeployed != intakeDepl ||
+                   Math.abs(intakePosition - intakePos) > 0.01 ||
+                   !autoMode.equals(autoMd) ||
+                   autoModeNumber != autoNum ||
+                   !statusMessage.equals(statusMsg);
+                   // NOTE: Removed timestamp and heartbeat comparisons
+        }
+        
+        /**
+         * Update this state with current values
+         * NOTE: Still tracks timestamp and heartbeat for packet generation
+         */
+        void update(double currentTimestamp, double batteryVolt, boolean batteryLow,
+                   boolean enabled, boolean auto, boolean teleop, String mode,
+                   String alliance, boolean isRed, double matchTime,
+                   boolean shootReady, int shootSpeed, boolean intakeDepl, double intakePos,
+                   String autoMd, int autoNum, String statusMsg, int hb) {
+            
+            timestamp = currentTimestamp;
+            batteryVoltage = batteryVolt;
+            batteryIsLow = batteryLow;
+            robotEnabled = enabled;
+            isAutonomous = auto;
+            isTeleop = teleop;
+            robotMode = mode;
+            allianceColor = alliance;
+            isRedAlliance = isRed;
+            matchTimeRemaining = matchTime;
+            shooterReady = shootReady;
+            shooterSpeed = shootSpeed;
+            intakeDeployed = intakeDepl;
+            intakePosition = intakePos;
+            autoMode = autoMd;
+            autoModeNumber = autoNum;
+            statusMessage = statusMsg;
+            heartbeat = hb;
+        }
     }
     
     /**
@@ -75,6 +181,7 @@ public class RobotTelemetryServer {
             discoveryThread.start();
             
             System.out.println("✅ Telemetry server started successfully");
+            System.out.println("📡 Send-on-change mode: packets sent only when data changes");
             return true;
             
         } catch (Exception e) {
@@ -104,6 +211,13 @@ public class RobotTelemetryServer {
         }
         
         System.out.println("✅ Telemetry server stopped");
+    }
+    
+    /**
+     * Force the next telemetry packet to be sent (useful after config changes)
+     */
+    public void forceSend() {
+        forceNextSend = true;
     }
     
     /**
@@ -165,10 +279,14 @@ public class RobotTelemetryServer {
                 
                 // Simple parsing - look for teensy control board
                 if (message.contains("teensy_control_board") || message.contains("control_board")) {
-                    if (knownClients.add(clientIP)) {
+                    boolean isNewClient = knownClients.add(clientIP);
+                    if (isNewClient) {
                         System.out.println("✅ Registered new client: " + clientIP);
-                        System.out.println("📊 Total clients: " + knownClients.size());
                     }
+                    
+                    // Force send telemetry to new or existing client
+                    System.out.println("🚀 Forcing telemetry send after discovery");
+                    forceNextSend = true;
                 }
                 
             } catch (Exception e) {
@@ -182,35 +300,106 @@ public class RobotTelemetryServer {
     }
     
     private void broadcastLoop() {
-        System.out.println("🚀 Telemetry broadcast started");
+        System.out.println("🚀 Telemetry broadcast started (send-on-change mode)");
         
         while (serverRunning) {
             try {
-                String telemetryJson = createTelemetryPacket();
-                byte[] data = telemetryJson.getBytes();
+                long currentTime = System.currentTimeMillis();
+                boolean shouldSendHeartbeat = (currentTime - lastForcedSendTime) >= HEARTBEAT_INTERVAL_MS;
                 
-                // Send to all known clients
-                for (String clientIP : knownClients) {
-                    try {
-                        InetAddress clientAddr = InetAddress.getByName(clientIP);
-                        DatagramPacket packet = new DatagramPacket(data, data.length, clientAddr, TELEMETRY_PORT);
-                        udpSocket.send(packet);
-                    } catch (Exception e) {
-                        System.err.println("Failed to send to " + clientIP + ": " + e.getMessage());
+                // Get current telemetry values
+                double currentTimestamp = Timer.getFPGATimestamp();
+                double batteryVoltage = batteryVoltageSupplier.get();
+                boolean batteryIsLow = batteryVoltage < 11.5;
+                boolean robotEnabled = DriverStation.isEnabled();
+                boolean isAutonomous = DriverStation.isAutonomous();
+                boolean isTeleop = DriverStation.isTeleop();
+                String robotMode = getRobotModeString();
+                
+                String allianceColor = "unknown";
+                var alliance = DriverStation.getAlliance();
+                if (alliance.isPresent()) {
+                    allianceColor = alliance.get().toString().toLowerCase();
+                }
+                boolean isRedAlliance = allianceColor.equals("red");
+                
+                double matchTimeRemaining = DriverStation.getMatchTime();
+                boolean shooterReady = shooterReadySupplier.get();
+                int shooterSpeed = shooterSpeedSupplier.get();
+                boolean intakeDeployed = intakeDeployedSupplier.get();
+                double intakePosition = intakePositionSupplier.get();
+                String autoMode = autoModeSupplier.get();
+                int autoModeNumber = autoModeNumberSupplier.get();
+                String statusMessage = statusMessageSupplier.get();
+                int heartbeat = (int)(Timer.getFPGATimestamp() * 10) % 1000;
+                
+                // Check if we should send
+                boolean hasChanges = previousState.hasChanges(
+                    currentTimestamp, batteryVoltage, batteryIsLow,
+                    robotEnabled, isAutonomous, isTeleop, robotMode,
+                    allianceColor, isRedAlliance, matchTimeRemaining,
+                    shooterReady, shooterSpeed, intakeDeployed, intakePosition,
+                    autoMode, autoModeNumber, statusMessage, heartbeat
+                );
+                
+                boolean shouldSend = hasChanges || forceNextSend || shouldSendHeartbeat;
+                
+                if (shouldSend) {
+                    String telemetryJson = createTelemetryPacket(
+                        currentTimestamp, batteryVoltage, batteryIsLow,
+                        robotEnabled, isAutonomous, isTeleop, robotMode,
+                        allianceColor, isRedAlliance, matchTimeRemaining,
+                        shooterReady, shooterSpeed, intakeDeployed, intakePosition,
+                        autoMode, autoModeNumber, statusMessage, heartbeat
+                    );
+                    
+                    byte[] data = telemetryJson.getBytes();
+                    int packetsSent = 0;
+                    
+                    // Send to all known clients
+                    for (String clientIP : knownClients) {
+                        try {
+                            InetAddress clientAddr = InetAddress.getByName(clientIP);
+                            DatagramPacket packet = new DatagramPacket(data, data.length, clientAddr, TELEMETRY_PORT);
+                            udpSocket.send(packet);
+                            packetsSent++;
+                        } catch (Exception e) {
+                            System.err.println("Failed to send to " + clientIP + ": " + e.getMessage());
+                        }
                     }
+                    
+                    // Also broadcast to subnet for discovery
+                    try {
+                        String broadcastIP = calculateBroadcastIP();
+                        InetAddress broadcastAddr = InetAddress.getByName(broadcastIP);
+                        DatagramPacket packet = new DatagramPacket(data, data.length, broadcastAddr, TELEMETRY_PORT);
+                        udpSocket.send(packet);
+                        packetsSent++;
+                    } catch (Exception e) {
+                        System.err.println("Broadcast failed: " + e.getMessage());
+                    }
+                    
+                    // Update state tracking
+                    previousState.update(
+                        currentTimestamp, batteryVoltage, batteryIsLow,
+                        robotEnabled, isAutonomous, isTeleop, robotMode,
+                        allianceColor, isRedAlliance, matchTimeRemaining,
+                        shooterReady, shooterSpeed, intakeDeployed, intakePosition,
+                        autoMode, autoModeNumber, statusMessage, heartbeat
+                    );
+                    
+                    String sendReason = forceNextSend ? "FORCED" : 
+                                      shouldSendHeartbeat ? "HEARTBEAT" : "CHANGE";
+                    
+                    //System.out.println("📤 Sent telemetry (" + sendReason + ") to " + packetsSent + " destinations");
+                    
+                    if (shouldSendHeartbeat) {
+                        lastForcedSendTime = currentTime;
+                    }
+                    forceNextSend = false;
                 }
                 
-                // Also broadcast to subnet for discovery
-                try {
-                    String broadcastIP = calculateBroadcastIP();
-                    InetAddress broadcastAddr = InetAddress.getByName(broadcastIP);
-                    DatagramPacket packet = new DatagramPacket(data, data.length, broadcastAddr, TELEMETRY_PORT);
-                    udpSocket.send(packet);
-                } catch (Exception e) {
-                    System.err.println("Broadcast failed: " + e.getMessage());
-                }
-                
-                Thread.sleep(BROADCAST_INTERVAL_MS);
+                Thread.sleep(CHECK_INTERVAL_MS);
                 
             } catch (InterruptedException e) {
                 break;
@@ -227,66 +416,64 @@ public class RobotTelemetryServer {
         System.out.println("🛑 Telemetry broadcast stopped");
     }
     
-    private String createTelemetryPacket() {
+    private String createTelemetryPacket(double currentTimestamp, double batteryVoltage, boolean batteryIsLow,
+                                       boolean robotEnabled, boolean isAutonomous, boolean isTeleop, String robotMode,
+                                       String allianceColor, boolean isRedAlliance, double matchTimeRemaining,
+                                       boolean shooterReady, int shooterSpeed, boolean intakeDeployed, double intakePosition,
+                                       String autoMode, int autoModeNumber, String statusMessage, int heartbeat) {
         StringBuilder json = new StringBuilder();
         json.append("{");
         
         // Metadata
-        json.append("\"timestamp\":").append(Timer.getFPGATimestamp()).append(",");
+        json.append("\"timestamp\":").append(currentTimestamp).append(",");
         json.append("\"team\":").append(teamNumber).append(",");
         
         // Battery
         json.append("\"battery\":{");
-        double batteryVoltage = batteryVoltageSupplier.get();
         json.append("\"voltage\":").append(batteryVoltage).append(",");
-        json.append("\"isLow\":").append(batteryVoltage < 11.5);
+        json.append("\"isLow\":").append(batteryIsLow);
         json.append("},");
         
         // Robot state
         json.append("\"robot\":{");
-        json.append("\"enabled\":").append(DriverStation.isEnabled()).append(",");
-        json.append("\"autonomous\":").append(DriverStation.isAutonomous()).append(",");
-        json.append("\"teleop\":").append(DriverStation.isTeleop()).append(",");
-        json.append("\"mode\":\"").append(getRobotModeString()).append("\"");
+        json.append("\"enabled\":").append(robotEnabled).append(",");
+        json.append("\"autonomous\":").append(isAutonomous).append(",");
+        json.append("\"teleop\":").append(isTeleop).append(",");
+        json.append("\"mode\":\"").append(robotMode).append("\"");
         json.append("},");
         
         // Alliance
         json.append("\"alliance\":{");
-        String allianceColor = "unknown";
-        var alliance = DriverStation.getAlliance();
-        if (alliance.isPresent()) {
-            allianceColor = alliance.get().toString().toLowerCase();
-        }
         json.append("\"color\":\"").append(allianceColor).append("\",");
-        json.append("\"isRed\":").append(allianceColor.equals("red"));
+        json.append("\"isRed\":").append(isRedAlliance);
         json.append("},");
         
         // Match
         json.append("\"match\":{");
-        json.append("\"timeRemaining\":").append(DriverStation.getMatchTime());
+        json.append("\"timeRemaining\":").append(matchTimeRemaining);
         json.append("},");
         
         // Subsystems (using suppliers)
         json.append("\"shooter\":{");
-        json.append("\"ready\":").append(shooterReadySupplier.get()).append(",");
-        json.append("\"speed\":").append(shooterSpeedSupplier.get());
+        json.append("\"ready\":").append(shooterReady).append(",");
+        json.append("\"speed\":").append(shooterSpeed);
         json.append("},");
         
         json.append("\"intake\":{");
-        json.append("\"deployed\":").append(intakeDeployedSupplier.get()).append(",");
-        json.append("\"position\":").append(intakePositionSupplier.get());
+        json.append("\"deployed\":").append(intakeDeployed).append(",");
+        json.append("\"position\":").append(intakePosition);
         json.append("},");
         
         // Auto
         json.append("\"auto\":{");
-        json.append("\"selectedMode\":\"").append(autoModeSupplier.get()).append("\",");
-        json.append("\"modeNumber\":").append(autoModeNumberSupplier.get());
+        json.append("\"selectedMode\":\"").append(autoMode).append("\",");
+        json.append("\"modeNumber\":").append(autoModeNumber);
         json.append("},");
         
         // Status
         json.append("\"status\":{");
-        json.append("\"message\":\"").append(statusMessageSupplier.get()).append("\",");
-        json.append("\"heartbeat\":").append((int)(Timer.getFPGATimestamp() * 10) % 1000);
+        json.append("\"message\":\"").append(statusMessage).append("\",");
+        json.append("\"heartbeat\":").append(heartbeat);
         json.append("}");
         
         json.append("}");

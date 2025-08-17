@@ -27,7 +27,7 @@ private:
     bool robotKnowsAboutUs;
     
     // Robot telemetry data
-    struct {
+    struct RobotData {
         double timestamp = 0.0;
         
         // Battery
@@ -62,7 +62,56 @@ private:
         int heartbeat = 0;
         
         unsigned long lastUpdate = 0;
+        
+        /**
+         * Compare meaningful fields (ignore timestamp, heartbeat, lastUpdate)
+         * Returns true if any significant data has changed
+         */
+        bool hasSignificantChanges(const RobotData& other) const {
+            return (abs(batteryVoltage - other.batteryVoltage) > 0.01) ||
+                   (batteryIsLow != other.batteryIsLow) ||
+                   (robotEnabled != other.robotEnabled) ||
+                   (isAutonomous != other.isAutonomous) ||
+                   (isTeleop != other.isTeleop) ||
+                   (robotMode != other.robotMode) ||
+                   (allianceColor != other.allianceColor) ||
+                   (isRedAlliance != other.isRedAlliance) ||
+                   (abs(matchTimeRemaining - other.matchTimeRemaining) > 0.1) ||
+                   (shooterReady != other.shooterReady) ||
+                   (shooterSpeed != other.shooterSpeed) ||
+                   (intakeDeployed != other.intakeDeployed) ||
+                   (abs(intakePosition - other.intakePosition) > 0.01) ||
+                   (autoMode != other.autoMode) ||
+                   (autoModeNumber != other.autoModeNumber) ||
+                   (statusMessage != other.statusMessage);
+        }
+        
+        /**
+         * Copy meaningful data from another RobotData (preserves timestamps)
+         */
+        void copySignificantData(const RobotData& source) {
+            batteryVoltage = source.batteryVoltage;
+            batteryIsLow = source.batteryIsLow;
+            robotEnabled = source.robotEnabled;
+            isAutonomous = source.isAutonomous;
+            isTeleop = source.isTeleop;
+            robotMode = source.robotMode;
+            allianceColor = source.allianceColor;
+            isRedAlliance = source.isRedAlliance;
+            matchTimeRemaining = source.matchTimeRemaining;
+            shooterReady = source.shooterReady;
+            shooterSpeed = source.shooterSpeed;
+            intakeDeployed = source.intakeDeployed;
+            intakePosition = source.intakePosition;
+            autoMode = source.autoMode;
+            autoModeNumber = source.autoModeNumber;
+            statusMessage = source.statusMessage;
+        }
     } robotData;
+    
+    // Previous state for change detection
+    RobotData previousRobotData;
+    bool hasNewChangedData = false;
     
     IPAddress calculateRobotIP(int teamNumber) {
         if (teamNumber <= 0) return IPAddress(10, 0, 0, 2);
@@ -102,6 +151,9 @@ private:
             return;
         }
         
+        // Store previous data for change detection
+        previousRobotData.copySignificantData(robotData);
+        
         robotData.lastUpdate = millis();
         
         // Parse timestamp
@@ -134,7 +186,7 @@ private:
             robotData.isRedAlliance = doc["alliance"]["isRed"] | false;
             
             if (robotData.allianceColor != "unknown") {
-                debugPrint("🏁 Alliance: " + robotData.allianceColor);
+                debugPrint("🔴 Alliance: " + robotData.allianceColor);
             }
         }
         
@@ -169,6 +221,12 @@ private:
             robotData.statusMessage = doc["status"]["message"] | "";
             robotData.heartbeat = doc["status"]["heartbeat"] | 0;
         }
+        
+        // Check for significant changes
+        if (robotData.hasSignificantChanges(previousRobotData)) {
+            hasNewChangedData = true;
+            debugPrint("🔄 Significant data change detected!");
+        }
     }
     
 public:
@@ -180,7 +238,8 @@ public:
         packetsReceived(0),
         lastDiscoveryTime(0),
         discoveryInterval(5000), // Send discovery every 5 seconds
-        robotKnowsAboutUs(false) {
+        robotKnowsAboutUs(false),
+        hasNewChangedData(false) {
     }
     
     bool begin() {
@@ -257,6 +316,17 @@ public:
         return (millis() - lastPacketTime) < 2000; // Data within last 2 seconds
     }
     
+    /**
+     * Returns true if meaningful robot data has changed since last check
+     * Ignores timestamps, heartbeats, and other always-changing fields
+     * This flag is cleared after being read
+     */
+    bool hasChangedData() {
+        bool result = hasNewChangedData;
+        hasNewChangedData = false; // Clear flag after reading
+        return result;
+    }
+    
     int getPacketCount() const { return packetsReceived; }
     
     unsigned long getTimeSinceLastPacket() const {
@@ -273,11 +343,12 @@ public:
         debugPrint("Packets received: " + String(packetsReceived));
         debugPrint("Last packet: " + String(getTimeSinceLastPacket()) + "ms ago");
         debugPrint("Recent data: " + String(hasRecentData() ? "YES" : "NO"));
+        debugPrint("Changed data available: " + String(hasNewChangedData ? "YES" : "NO"));
         
         if (robotData.lastUpdate > 0) {
             debugPrint("🔋 Battery: " + String(robotData.batteryVoltage) + "V");
             debugPrint("🤖 Robot: " + String(robotData.robotEnabled ? "ENABLED" : "DISABLED"));
-            debugPrint("🏁 Alliance: " + robotData.allianceColor);
+            debugPrint("🔴 Alliance: " + robotData.allianceColor);
             debugPrint("Data age: " + String(millis() - robotData.lastUpdate) + "ms");
         } else {
             debugPrint("⚠️  No robot data received yet");

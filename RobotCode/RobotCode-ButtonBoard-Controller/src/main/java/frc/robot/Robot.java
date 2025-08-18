@@ -25,7 +25,7 @@ public class Robot extends TimedRobot {
         
         // Your existing initialization
         pdp = new PowerDistribution();
-        controlBoardTable = NetworkTableInstance.getDefault().getTable("ControlBoard");
+        
         publishTimer = new Timer();
         publishTimer.start();
         
@@ -63,18 +63,14 @@ public class Robot extends TimedRobot {
     @Override
     public void robotPeriodic() {
         // Your existing periodic code
-        if (publishTimer.hasElapsed(0.1)) {
-            // Your existing NetworkTables publishing if you want to keep it
-            controlBoardTable.getEntry("battery/voltage").setDouble(11.75);
-            publishTimer.restart();
-        }
+        
         
         // Optional: Print telemetry server status occasionally
         
         callCount++;
-        if (callCount % 50 == 0) { // Every 5 seconds
+        if (callCount % 600 == 0) { // Every minute
             if (telemetryServer.isRunning()) {
-                System.out.println("📡 Telemetry server: " + telemetryServer.getClientCount() + " clients connected");
+                System.out.println("UDP Telemetry server: " + telemetryServer.getClientCount() + " clients connected");
             }
         }
     }

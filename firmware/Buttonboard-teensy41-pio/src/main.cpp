@@ -70,8 +70,8 @@ Bounce buttons[numButtons];
 CRGB leds[NUM_LEDS];
 CRGB noopColor= CRGB::Black; // Default noop color
 CRGB allianceColor = CRGB::Black; // Default alliance color
-CRGB redAllianceColors[STATES_PER_LED]={CRGB::Red, CRGB::Red, CRGB::DarkRed, CRGB::Black};
-CRGB blueAllianceColors[STATES_PER_LED]={CRGB::Blue, CRGB::Blue, CRGB::DarkBlue, CRGB::Black};
+CRGB redAllianceColors[STATES_PER_LED]={CRGB::DarkRed, CRGB::Red, CRGB::DarkRed, CRGB::Black};
+CRGB blueAllianceColors[STATES_PER_LED]={CRGB::DarkBlue, CRGB::Blue, CRGB::DarkBlue, CRGB::Black};
 
 
 

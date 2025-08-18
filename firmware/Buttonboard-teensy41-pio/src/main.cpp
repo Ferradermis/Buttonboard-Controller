@@ -80,6 +80,7 @@ void SetupEthernet();
 void SetLEDColors(int ledIndex, std::initializer_list<CRGB> colors);
 void SetLEDColor(int ledIndex, CRGB color);
 void CheckButtonStates();
+void transferColors();
 
 void isr_animationTimer();
 volatile uint8_t animationFrame = 0; // Animation frame counter
@@ -96,10 +97,13 @@ uint32_t LastBatteryCheck=0;
 
 bool foundATag=false;
 bool bAutomated=false;
+bool bTeleop=false;
 
 // In your setup() function, replace the NetworkTables setup with:
 void setup() {
     Serial.begin(115200);
+    while (!Serial && (millis() < 5000)) ; // wait for Serial to initialize (with timeout for non-USB serial)
+    Serial.println("Buttonboard starting up...");
     
     FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);
     FastLED.setBrightness(120);
@@ -157,13 +161,11 @@ void loop() {
             allianceColor = CRGB::Black; // Default if no alliance color set
         }
 
-        if (udpClient.getRobotMode()=="Autonomous") {
+        
+
+        if (udpClient.getRobotMode()!="Teleop") {
             
                 bAutomated=true;
-                
-                
-                
-            
         }
         else{
             if (bAutomated){
@@ -199,13 +201,22 @@ void loop() {
         }
     }
 
-    //check button states
-    if (!bAutomated)
+    
         CheckButtonStates();
+    
+            
 
 
     //update the LED colors according to current animation frame
 
+    transferColors();
+
+    FastLED.show();
+
+    delay(0);
+}
+
+void transferColors(){
     noInterrupts();
     for (int i = 0; i < NUM_LEDS; i++) {
         // Update each LED based on its current state
@@ -213,15 +224,17 @@ void loop() {
         FastLED.leds()[i] = currentColor;
     }
     interrupts();
-    FastLED.show();
-
-    delay(0);
 }
 
 void CheckButtonStates() {
+    bool warning=false;
     for (uint8_t i = 0; i < numButtons; i++) {
     buttons[i].update();
     if (buttons[i].fell()) {
+        if(bAutomated){
+            warning=true;
+            break;
+        }
       //set PIN 13 LED for debug purposes
       digitalWrite(PIN_LED, HIGH);
 
@@ -259,7 +272,44 @@ void CheckButtonStates() {
       Joystick.button(i+1,false);
     }
   }
+    if (warning){
+    //if we're automated, just turn off all buttons
+            for(int i=0;i<numButtons;i++)
+            {
+                SetLEDColor(i, CRGB::Orange);
+                
+            }
+            transferColors();
+            FastLED.show();
+            delay(50);
+            for(int i=0;i<numButtons;i++)
+            {
+                SetLEDColor(i, CRGB::Black);
+                
+            }
+            transferColors();
+            FastLED.show();
+            delay(50);
+            for(int i=0;i<numButtons;i++)
+            {
+                SetLEDColor(i, CRGB::Orange);
+                
+            }
+            transferColors();
+            FastLED.show();
+            delay(50);
+            for(int i=0;i<numButtons;i++)
+            {
+                SetLEDColor(i, CRGB::Black);
+                
+            }
+            transferColors();
+            FastLED.show();
+            
+        }
 }
+
+
 
 
 

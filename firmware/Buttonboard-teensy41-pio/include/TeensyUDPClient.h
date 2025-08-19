@@ -193,6 +193,7 @@ private:
         // Parse match data
         if (doc["match"]) {
             robotData.matchTimeRemaining = doc["match"]["timeRemaining"] | 0.0;
+            debugPrint("🕒 Match time remaining: " + String(robotData.matchTimeRemaining) + "s");
         }
         
         // Parse subsystems
@@ -349,6 +350,7 @@ public:
             debugPrint("🔋 Battery: " + String(robotData.batteryVoltage) + "V");
             debugPrint("🤖 Robot: " + String(robotData.robotEnabled ? "ENABLED" : "DISABLED"));
             debugPrint("🔴 Alliance: " + robotData.allianceColor);
+            debugPrint("🕒 Match time remaining: " + String(robotData.matchTimeRemaining) + "s");
             debugPrint("Data age: " + String(millis() - robotData.lastUpdate) + "ms");
         } else {
             debugPrint("⚠️  No robot data received yet");

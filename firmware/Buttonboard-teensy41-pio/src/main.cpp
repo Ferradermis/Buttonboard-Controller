@@ -72,6 +72,7 @@ CRGB noopColor= CRGB::Black; // Default noop color
 CRGB allianceColor = CRGB::Black; // Default alliance color
 CRGB redAllianceColors[STATES_PER_LED]={CRGB::DarkRed, CRGB::Red, CRGB::DarkRed, CRGB::Black};
 CRGB blueAllianceColors[STATES_PER_LED]={CRGB::DarkBlue, CRGB::Blue, CRGB::DarkBlue, CRGB::Black};
+CRGB algaeColor=CRGB::SeaGreen;
 
 
 
@@ -106,9 +107,9 @@ void setup() {
     Serial.println("Buttonboard starting up...");
     
     FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);
-    FastLED.setBrightness(120);
+    FastLED.setBrightness(192);
     FastLED.clear();
-    FastLED.showColor(CRGB::SlateBlue);
+    FastLED.showColor(CRGB::GhostWhite);
 
     pinMode(PIN_LED, OUTPUT);
     digitalWrite(PIN_LED, HIGH); 
@@ -175,6 +176,11 @@ void loop() {
                     SetLEDColor(i, CRGB::Black);
                 }
             }
+
+            if(udpClient.getMatchTimeRemaining()<=21.0){
+                SetLEDColors(22, {CRGB::Red, CRGB::Black, CRGB::Red, CRGB::Black});
+            }
+
         }
         
 
@@ -251,12 +257,41 @@ void CheckButtonStates() {
       }
 
       if (i>=12 && i<16){
+        for (int j=12;j<16;j++){
+            SetLEDColor(j,CRGB::Black);
+        }
+        SetLEDColor(i,CRGB::Purple);
+      }
+
+      
+      if (i>=16 && i<22){
         //set level buttons to black, then set THIS level button to purple.
-        for(int j=12;j<16;j++){
+        for(int j=16;j<22;j++){
+
             SetLEDColor(j, CRGB::Black);
           
         }
-        SetLEDColor(i, CRGB::Yellow);
+        switch(i){
+            case 16:
+                SetLEDColor(i, CRGB::Blue);
+                break;
+            case 17:
+                SetLEDColor(i, algaeColor);
+                break;
+            case 18:
+                SetLEDColor(i, algaeColor);
+                break;
+            case 19:
+                SetLEDColor(i, CRGB::Yellow);
+                break;
+            case 20:
+                SetLEDColor(i, CRGB::Orange);
+                break;
+            case 21:
+                SetLEDColor(i, CRGB::Purple);
+                break;
+        }
+
       }
 
 

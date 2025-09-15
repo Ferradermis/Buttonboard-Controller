@@ -99,6 +99,8 @@ uint32_t LastBatteryCheck=0;
 bool foundATag=false;
 bool bAutomated=false;
 bool bTeleop=false;
+bool bMatchTimeCountingDown=false;
+float lastMatchTime=0.0;
 
 // In your setup() function, replace the NetworkTables setup with:
 void setup() {
@@ -110,6 +112,7 @@ void setup() {
     FastLED.setBrightness(192);
     FastLED.clear();
     FastLED.showColor(CRGB::GhostWhite);
+
 
     pinMode(PIN_LED, OUTPUT);
     digitalWrite(PIN_LED, HIGH); 
@@ -162,11 +165,17 @@ void loop() {
             allianceColor = CRGB::Black; // Default if no alliance color set
         }
 
-        
+        if (udpClient.getMatchTimeRemaining()==-1.0){
+            bMatchTimeCountingDown=false;
+        } else if (udpClient.getMatchTimeRemaining()<lastMatchTime){
+            bMatchTimeCountingDown=true;
+        }
+        lastMatchTime=udpClient.getMatchTimeRemaining();
 
         if (udpClient.getRobotMode()!="Teleop") {
             
                 bAutomated=true;
+                bMatchTimeCountingDown=false;
         }
         else{
             if (bAutomated){
@@ -177,7 +186,7 @@ void loop() {
                 }
             }
 
-            if(udpClient.getMatchTimeRemaining()<=21.0){
+            if(udpClient.getMatchTimeRemaining()<=21.0 && bMatchTimeCountingDown){
                 SetLEDColors(22, {CRGB::Red, CRGB::Black, CRGB::Red, CRGB::Black});
             }
 

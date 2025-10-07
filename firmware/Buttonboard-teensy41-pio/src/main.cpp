@@ -82,6 +82,7 @@ void SetLEDColors(int ledIndex, std::initializer_list<CRGB> colors);
 void SetLEDColor(int ledIndex, CRGB color);
 void CheckButtonStates();
 void transferColors();
+void SetLEDColorFromTagId(int tagId, CRGB color);
 
 void isr_animationTimer();
 volatile uint8_t animationFrame = 0; // Animation frame counter
@@ -97,6 +98,7 @@ TeensyUDPClient udpClient(6574);// Your team number
 uint32_t LastBatteryCheck=0;
 
 bool foundATag=false;
+bool bAutoScoring=false;
 bool bAutomated=false;
 bool bTeleop=false;
 bool bMatchTimeCountingDown=false;
@@ -154,8 +156,29 @@ void loop() {
     udpClient.update();
     // If anything has changed, update the state of the control board.
     if (udpClient.hasChangedData()) {
-        
-        
+
+        if (udpClient.getLeftCamHasTag() || udpClient.getRightCamHasTag()) {
+            foundATag = true;
+        } else {
+            foundATag = false;
+        }
+        if (foundATag) {
+           if (!bAutoScoring){
+            for(int i=0;i<12;i++)
+            {
+                SetLEDColor(i,CRGB::Black);
+            }
+            if (udpClient.getLeftCamTagID()>0){
+                SetLEDColorFromTagId(udpClient.getLeftCamTagID(),CRGB::Green);
+            }
+            if (udpClient.getRightCamTagID()>0){
+                SetLEDColorFromTagId(udpClient.getRightCamTagID(),CRGB::Green);
+            }
+           }
+           FastLED.show();
+        }
+
+
         if (udpClient.getAllianceColor() =="blue") {
             allianceColor = CRGB::Blue;
         } else if (udpClient.getAllianceColor() =="red") {
@@ -381,6 +404,42 @@ void SetLEDColor(int ledIndex, CRGB color) {
     }
     
 }
+
+void SetLEDColorFromTagId(int tagId, CRGB color){
+    switch(tagId){
+        case 21:
+        case 10:
+            SetLEDColor(0,CRGB::Green);
+            SetLEDColor(1,CRGB::Green);
+            break;
+        case 22:
+        case 9:
+            SetLEDColor(2,CRGB::Green);
+            SetLEDColor(3,CRGB::Green);
+            break;
+        case 17:
+        case 8:
+            SetLEDColor(4,CRGB::Green);
+            SetLEDColor(5,CRGB::Green);
+            break;
+        case 18:
+        case 7:
+            SetLEDColor(6,CRGB::Green);
+            SetLEDColor(7,CRGB::Green);
+            break;
+        case 19:
+        case 6:
+            SetLEDColor(8,CRGB::Green);
+            SetLEDColor(9,CRGB::Green);
+            break;
+        case 20:
+        case 11:
+            SetLEDColor(10,CRGB::Green);
+            SetLEDColor(11,CRGB::Green);
+            break;
+    }
+}
+
 
 void SetupEthernet(){
     // Simple ethernet setup

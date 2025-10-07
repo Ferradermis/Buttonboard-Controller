@@ -62,7 +62,12 @@ private:
         int heartbeat = 0;
         
         unsigned long lastUpdate = 0;
-        
+
+        bool leftCamHasTag = false;
+        float leftCamTagID=-1;
+        bool rightCamHasTag = false;
+        float rightCamTagID=-1;
+
         /**
          * Compare meaningful fields (ignore timestamp, heartbeat, lastUpdate)
          * Returns true if any significant data has changed
@@ -83,7 +88,11 @@ private:
                    (abs(intakePosition - other.intakePosition) > 0.01) ||
                    (autoMode != other.autoMode) ||
                    (autoModeNumber != other.autoModeNumber) ||
-                   (statusMessage != other.statusMessage);
+                   (statusMessage != other.statusMessage) ||
+                   (leftCamHasTag != other.leftCamHasTag) ||
+                   (leftCamTagID != other.leftCamTagID) ||
+                   (rightCamHasTag != other.rightCamHasTag) ||
+                   (rightCamTagID != other.rightCamTagID);
         }
         
         /**
@@ -106,6 +115,10 @@ private:
             autoMode = source.autoMode;
             autoModeNumber = source.autoModeNumber;
             statusMessage = source.statusMessage;
+            leftCamHasTag = source.leftCamHasTag;
+            leftCamTagID = source.leftCamTagID;
+            rightCamHasTag = source.rightCamHasTag;
+            rightCamTagID = source.rightCamTagID;
         }
     } robotData;
     
@@ -222,6 +235,14 @@ private:
             robotData.statusMessage = doc["status"]["message"] | "";
             robotData.heartbeat = doc["status"]["heartbeat"] | 0;
         }
+
+        // Parse vision data
+        if (doc["vision"]) {
+            robotData.leftCamHasTag = doc["vision"]["leftCam"]["hasTag"] | false;
+            robotData.leftCamTagID = doc["vision"]["leftCam"]["tagID"] | -1;
+            robotData.rightCamHasTag = doc["vision"]["rightCam"]["hasTag"] | false;
+            robotData.rightCamTagID = doc["vision"]["rightCam"]["tagID"] | -1;
+        }
         
         // Check for significant changes
         if (robotData.hasSignificantChanges(previousRobotData)) {
@@ -311,7 +332,11 @@ public:
     String getStatusMessage() const { return robotData.statusMessage; }
     int getHeartbeat() const { return robotData.heartbeat; }
     unsigned long getLastDataUpdate() const { return robotData.lastUpdate; }
-    
+    bool getLeftCamHasTag() const { return robotData.leftCamHasTag; }
+    float getLeftCamTagID() const { return robotData.leftCamTagID; }    
+    bool getRightCamHasTag() const { return robotData.rightCamHasTag; }
+    float getRightCamTagID() const { return robotData.rightCamTagID; }
+
     // UDP-specific status
     bool hasRecentData() const { 
         return (millis() - lastPacketTime) < 2000; // Data within last 2 seconds

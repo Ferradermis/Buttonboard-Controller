@@ -1,7 +1,8 @@
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
 #include <Bounce2.h>
-#include "FRCNetworkTables.h"
+#include <NetworkTablesSubscriber.h>
+#include "EthernetConfig.h"
 
 #pragma region Button Pins
 #define PIN_BTN_01 0
@@ -50,10 +51,26 @@
 
 #define TEAM_NUMBER 6574
 
+
+// Robot telemetry state
+struct RobotTelemetry {
+    bool shooterReady;
+    bool intakeDeployed;
+    bool climbEngaged;
+    double shooterSpeed;
+    double intakePosition;
+    double batteryVoltage;
+    String autonomousMode;
+    bool fieldOriented;
+} robotData;
+
 //definition of void test_all_pixels()
 uint32_t HSVtoRGB(Adafruit_NeoPixel &strip, uint8_t h, uint8_t s, uint8_t v);
 void test_all_pixels();
 void testNeoPixels(Adafruit_NeoPixel &strip);
+void setupEthernet();
+void setupNetworkTables();
+void setupTelemetrySubscriptions();
 
 
 const uint8_t _buttonPins[] = {
@@ -82,7 +99,8 @@ Adafruit_NeoPixel pixels(NUM_LEDS, PIN_NEOPIXELS, NEO_GRB + NEO_KHZ800);
 Bounce buttons[numButtons];
 
 // Global objects
-FRCNetworkTables nt(TEAM_NUMBER);
+EthernetConfig ethernet(TEAM_NUMBER);
+NetworkTablesSubscriber nt(TEAM_NUMBER);
 
 uint32_t cReef=pixels.Color(200,0,200);
 uint32_t cRed=pixels.Color(200,0,0);
@@ -90,6 +108,12 @@ uint32_t cAlgae=pixels.Color(0,210,20);
 uint32_t cYellow=pixels.Color(200,200,0);
 uint32_t cGreen=pixels.Color(0,200,0);
 uint32_t cBlue=pixels.Color(0,0,200);
+
+uint32_t cClimberDeployed=pixels.Color(200,0,0);
+uint32_t cCliberGateClosed=pixels.Color(0,200,0);
+
+uint32_t cRedAlliance=pixels.Color(40,0,0);
+uint32_t cBlueAlliance=pixels.Color(0,0,40);
 
 uint32_t buttonColors[]={
   cReef,cReef,cReef,cReef,cReef,cReef,cReef,cReef,
@@ -178,13 +202,20 @@ void loop() {
 
 
         //set level buttons to black, then set THIS level button to yellow.
-      if(i>=12 && i<22){
-        for(int j=12;j<22;j++){
+      if(i>=12 && i<16){
+        for(int j=12;j<16;j++){
           pixels.setPixelColor(j,0,0,0);
         }
         pixels.setPixelColor(i,buttonColors[i]);
       }
        
+      //set level buttons to black, then set THIS level button to yellow.
+      if(i>=16 && i<22){
+        for(int j=16;j<22;j++){
+          pixels.setPixelColor(j,0,0,0);
+        }
+        pixels.setPixelColor(i,buttonColors[i]);
+      }
 
       //climb button
       if(i==22){
@@ -192,6 +223,7 @@ void loop() {
           pixels.setPixelColor(j,0,0,0);
         }
         pixels.setPixelColor(i,buttonColors[i]);
+        //nt.printStatus();
       }
 
       //write led states to leds
@@ -347,4 +379,99 @@ void testNeoPixels(Adafruit_NeoPixel &strip) {
   
   strip.clear();
   strip.show();
+}
+
+void setupEthernet() {
+    Serial.println("Starting Ethernet configuration...");
+    
+    // Try DHCP first, fallback to static team-based IP
+    if (ethernet.begin()) {
+        Serial.println("Ethernet configuration successful!");
+    } else {
+        Serial.println("Ethernet configuration failed!");
+        // Continue anyway - might work later
+    }
+    
+    // Optional: force static IP for competition
+    // ethernet.forceStatic();
+}
+
+void setupNetworkTables() {
+    // Set connection callback
+    nt.setConnectionCallback([](bool connected) {
+        if (connected) {
+            Serial.println("NT: Connected to robot - setting up subscriptions");
+            // Flash green when connected
+            //fill_solid(leds, NEOPIXEL_COUNT, CRGB::Green);
+            //FastLED.show();
+            delay(500);
+        } else {
+            Serial.println("NT: Disconnected from robot");
+            // Flash red when disconnected
+            //fill_solid(leds, NEOPIXEL_COUNT, CRGB::Red);
+            //FastLED.show();
+            delay(500);
+        }
+    });
+    
+    // Subscribe to robot telemetry
+    setupTelemetrySubscriptions();
+    
+    // Start NetworkTables connection using ethernet configuration
+    if (ethernet.isConnectionActive()) {
+        if (nt.begin(ethernet)) {
+            Serial.println("NetworkTables initialization started");
+        } else {
+            Serial.println("Failed to initialize NetworkTables");
+        }
+    } else {
+        Serial.println("Waiting for Ethernet connection before starting NetworkTables");
+    }
+}
+
+void setupTelemetrySubscriptions() {
+    // Shooter subsystem
+    nt.subscribeBoolean("shooter/ready", [](const String& key, bool value) {
+        robotData.shooterReady = value;
+        Serial.printf("Shooter ready: %s\n", value ? "YES" : "NO");
+    });
+    
+    nt.subscribeNumber("shooter/speed", [](const String& key, double value) {
+        robotData.shooterSpeed = value;
+    });
+    
+    // Intake subsystem
+    nt.subscribeBoolean("intake/deployed", [](const String& key, bool value) {
+        robotData.intakeDeployed = value;
+        Serial.printf("Intake deployed: %s\n", value ? "YES" : "NO");
+    });
+    
+    nt.subscribeNumber("intake/position", [](const String& key, double value) {
+        robotData.intakePosition = value;
+    });
+    
+    // Climbing subsystem
+    nt.subscribeBoolean("climb/engaged", [](const String& key, bool value) {
+        robotData.climbEngaged = value;
+        Serial.printf("Climb engaged: %s\n", value ? "YES" : "NO");
+    });
+    
+    // System telemetry
+    nt.subscribeNumber("system/batteryVoltage", [](const String& key, double value) {
+        robotData.batteryVoltage = value;
+        if (value < 11.5) {
+            Serial.printf("WARNING: Low battery voltage: %.1fV\n", value);
+        }
+    });
+    
+    // Autonomous mode
+    nt.subscribeString("auto/selectedMode", [](const String& key, const String& value) {
+        robotData.autonomousMode = value;
+        Serial.printf("Auto mode selected: %s\n", value.c_str());
+    });
+    
+    // Drive configuration
+    nt.subscribeBoolean("drive/fieldOriented", [](const String& key, bool value) {
+        robotData.fieldOriented = value;
+    });
 }

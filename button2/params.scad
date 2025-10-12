@@ -19,10 +19,10 @@ w_fin=1.2;
 h_fin=6;
 
 //button params
-od_button=23.25;
+od_button=24.25;
 id_button=21.50;
-t_buttonface=3;
-bevel_buttonface=2.5;
+t_buttonface=3.5;
+bevel_buttonface=1.5;
 h_button=14.5;
 h_button_travel=h_button+2;
 w_button_guide=3.5;

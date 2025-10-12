@@ -83,6 +83,8 @@ void SetLEDColor(int ledIndex, CRGB color);
 void CheckButtonStates();
 void transferColors();
 void SetLEDColorFromTagId(int tagId, CRGB color);
+void SetLEDColorFromTagIdLeft(int tagId, CRGB color);
+void SetLEDColorFromTagIdRight(int tagId, CRGB color);
 
 void isr_animationTimer();
 volatile uint8_t animationFrame = 0; // Animation frame counter
@@ -145,6 +147,13 @@ void setup() {
 
     //yeah this is our throw-away color.  The SetLEDColors function will ignore this color and leave the LED unchanged.
     noopColor.setRGB(1,2,3); 
+    Joystick.X(512);
+    Joystick.Y(512);   
+    Joystick.Z(512);
+    Joystick.Zrotate(512);
+    Joystick.slider(512);
+    Joystick.sliderLeft(512);
+    Joystick.sliderRight(512);
 
     digitalWrite(PIN_LED, LOW);
 }
@@ -157,25 +166,32 @@ void loop() {
     // If anything has changed, update the state of the control board.
     if (udpClient.hasChangedData()) {
 
-        if (udpClient.getLeftCamHasTag() || udpClient.getRightCamHasTag()) {
-            foundATag = true;
-        } else {
-            foundATag = false;
-        }
+        foundATag=((udpClient.getLeftCamTagID()>0) || (udpClient.getRightCamTagID()>0));
         if (foundATag) {
+            Serial.print("Left Tag ");
+            Serial.println(udpClient.getLeftCamTagID());
+            Serial.print("Right Tag");
+            Serial.println(udpClient.getRightCamTagID());
            if (!bAutoScoring){
             for(int i=0;i<12;i++)
             {
                 SetLEDColor(i,CRGB::Black);
             }
-            if (udpClient.getLeftCamTagID()>0){
-                SetLEDColorFromTagId(udpClient.getLeftCamTagID(),CRGB::Green);
-            }
-            if (udpClient.getRightCamTagID()>0){
-                SetLEDColorFromTagId(udpClient.getRightCamTagID(),CRGB::Green);
-            }
+                SetLEDColorFromTagIdLeft(udpClient.getLeftCamTagID(),CRGB::Green);
+                SetLEDColorFromTagIdRight(udpClient.getRightCamTagID(),CRGB::Green);
            }
+           transferColors();
            FastLED.show();
+           Serial.println("TAG FOUND");
+        }
+        else{
+            for(int i=0;i<12;i++)
+            {
+                SetLEDColor(i,CRGB::Black);
+            }
+            transferColors();
+           FastLED.show();
+            Serial.println("TAG NOT FOUND");
         }
 
 
@@ -219,6 +235,7 @@ void loop() {
 
     }
     
+    bAutomated=false;
     if (bAutomated){
         if (udpClient.getAllianceColor() =="blue") {
             for(int i=0;i<numButtons;i++)
@@ -270,8 +287,8 @@ void CheckButtonStates() {
     buttons[i].update();
     if (buttons[i].fell()) {
         if(bAutomated){
-            warning=true;
-            break;
+            //warning=true;
+            //break;
         }
       //set PIN 13 LED for debug purposes
       digitalWrite(PIN_LED, HIGH);
@@ -405,36 +422,73 @@ void SetLEDColor(int ledIndex, CRGB color) {
     
 }
 
-void SetLEDColorFromTagId(int tagId, CRGB color){
+
+
+void SetLEDColorFromTagIdRight(int tagId, CRGB color){
     switch(tagId){
         case 21:
         case 10:
             SetLEDColor(0,CRGB::Green);
-            SetLEDColor(1,CRGB::Green);
+            //SetLEDColor(1,CRGB::Green);
             break;
         case 22:
         case 9:
             SetLEDColor(2,CRGB::Green);
-            SetLEDColor(3,CRGB::Green);
+            //SetLEDColor(3,CRGB::Green);
             break;
         case 17:
         case 8:
             SetLEDColor(4,CRGB::Green);
-            SetLEDColor(5,CRGB::Green);
+            //SetLEDColor(5,CRGB::Green);
             break;
         case 18:
         case 7:
             SetLEDColor(6,CRGB::Green);
-            SetLEDColor(7,CRGB::Green);
+            //SetLEDColor(7,CRGB::Green);
             break;
         case 19:
         case 6:
             SetLEDColor(8,CRGB::Green);
-            SetLEDColor(9,CRGB::Green);
+           //SetLEDColor(9,CRGB::Green);
             break;
         case 20:
         case 11:
             SetLEDColor(10,CRGB::Green);
+            //SetLEDColor(11,CRGB::Green);
+            break;
+    }
+}
+
+void SetLEDColorFromTagIdLeft(int tagId, CRGB color){
+    switch(tagId){
+        case 21:
+        case 10:
+            //SetLEDColor(0,CRGB::Green);
+            SetLEDColor(1,CRGB::Green);
+            break;
+        case 22:
+        case 9:
+            //SetLEDColor(2,CRGB::Green);
+            SetLEDColor(3,CRGB::Green);
+            break;
+        case 17:
+        case 8:
+            //SetLEDColor(4,CRGB::Green);
+            SetLEDColor(5,CRGB::Green);
+            break;
+        case 18:
+        case 7:
+            //SetLEDColor(6,CRGB::Green);
+            SetLEDColor(7,CRGB::Green);
+            break;
+        case 19:
+        case 6:
+            //SetLEDColor(8,CRGB::Green);
+            SetLEDColor(9,CRGB::Green);
+            break;
+        case 20:
+        case 11:
+            //SetLEDColor(10,CRGB::Green);
             SetLEDColor(11,CRGB::Green);
             break;
     }

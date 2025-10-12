@@ -164,6 +164,9 @@ private:
             return;
         }
         
+
+        debugPrint(jsonData);
+
         // Store previous data for change detection
         previousRobotData.copySignificantData(robotData);
         
@@ -210,6 +213,7 @@ private:
         }
         
         // Parse subsystems
+        /*
         if (doc["shooter"]) {
             robotData.shooterReady = doc["shooter"]["ready"] | false;
             robotData.shooterSpeed = doc["shooter"]["speed"] | 0;
@@ -223,7 +227,8 @@ private:
             robotData.intakeDeployed = doc["intake"]["deployed"] | false;
             robotData.intakePosition = doc["intake"]["position"] | 0.0;
         }
-        
+        */
+
         // Parse auto selection
         if (doc["auto"]) {
             robotData.autoMode = doc["auto"]["selectedMode"] | "Unknown";
@@ -239,9 +244,15 @@ private:
         // Parse vision data
         if (doc["vision"]) {
             robotData.leftCamHasTag = doc["vision"]["leftCam"]["hasTag"] | false;
-            robotData.leftCamTagID = doc["vision"]["leftCam"]["tagID"] | -1;
+            robotData.leftCamTagID = doc["vision"]["leftCam"]["tagID"] | -1.0f;
             robotData.rightCamHasTag = doc["vision"]["rightCam"]["hasTag"] | false;
-            robotData.rightCamTagID = doc["vision"]["rightCam"]["tagID"] | -1;
+            robotData.rightCamTagID = doc["vision"]["rightCam"]["tagID"] | -1.0f;
+
+            debugPrint("Left Tag: " + String(robotData.leftCamTagID));
+            debugPrint("Rght Tag: " + String(robotData.rightCamTagID));
+        }
+        else{
+            debugPrint("no vision data in json");
         }
         
         // Check for significant changes
@@ -370,6 +381,9 @@ public:
         debugPrint("Last packet: " + String(getTimeSinceLastPacket()) + "ms ago");
         debugPrint("Recent data: " + String(hasRecentData() ? "YES" : "NO"));
         debugPrint("Changed data available: " + String(hasNewChangedData ? "YES" : "NO"));
+
+        debugPrint("Left Tag ID" + String(robotData.leftCamTagID));
+        debugPrint("Right Tag ID" + String(robotData.rightCamTagID));
         
         if (robotData.lastUpdate > 0) {
             debugPrint("🔋 Battery: " + String(robotData.batteryVoltage) + "V");

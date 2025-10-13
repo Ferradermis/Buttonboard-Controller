@@ -4,6 +4,8 @@
 #include <Bounce2.h>
 #include <FastLED.h>
 #include <IntervalTimer.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 
 
 #pragma region Button Pins
@@ -77,7 +79,6 @@ CRGB algaeColor=CRGB::SeaGreen;
 
 
 void SetupEthernet();
-
 void SetLEDColors(int ledIndex, std::initializer_list<CRGB> colors);
 void SetLEDColor(int ledIndex, CRGB color);
 void CheckButtonStates();
@@ -96,6 +97,7 @@ CRGB ledStates[NUM_LEDS * STATES_PER_LED];
 
 TeensyUDPClient udpClient(6574);// Your team number
 
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 uint32_t LastBatteryCheck=0;
 
@@ -108,28 +110,73 @@ float lastMatchTime=0.0;
 
 // In your setup() function, replace the NetworkTables setup with:
 void setup() {
+
+    Wire.begin();
+    // Initialize the LCD
+    lcd.init();
+    // Turn on the backlight
+    lcd.backlight();
+    
+    
     Serial.begin(115200);
     while (!Serial && (millis() < 5000)) ; // wait for Serial to initialize (with timeout for non-USB serial)
     Serial.println("Buttonboard starting up...");
+    lcd.setCursor(0, 0);  // Column 0, Row 0
+    lcd.print("Ferra Bttn Board");
     
     FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);
     FastLED.setBrightness(192);
     FastLED.clear();
-    FastLED.showColor(CRGB::GhostWhite);
+    FastLED.showColor(CRGB::DarkRed);
+
+
+    for (int i=0;i<numButtons;i++) {
+        buttons[i].attach(_buttonPins[i], INPUT_PULLUP);
+        buttons[i].interval(50); // 50ms debounce interval
+    }
 
 
     pinMode(PIN_LED, OUTPUT);
     digitalWrite(PIN_LED, HIGH); 
     
-    SetupEthernet();
-    
-    delay(2000); // Let ethernet stabilize
-    
+    if(digitalRead(PIN_BTN_23)==HIGH){
+
+        lcd.setCursor(0, 1);  // Column 0, Row 1
+        lcd.print("Ethernet Startup");
+        SetupEthernet();
+        lcd.setCursor(0, 1);  // Column 0, Row 1
+        lcd.print("Ethernet Started");
+        lcd.setCursor(0, 0);
+        lcd.print(String(Ethernet.localIP()[0]));
+        lcd.print(".");
+        lcd.print(String(Ethernet.localIP()[1]));
+        lcd.print(".");
+        lcd.print(String(Ethernet.localIP()[2]));
+        lcd.print(".");
+        lcd.print(String(Ethernet.localIP()[3]));
+        lcd.print("         "); 
+    }
+    else{
+        lcd.setCursor(0, 1);  // Column 0, Row 1
+        lcd.print("Ethernet SKIPPED");
+    }
+
+    delay(1500); // Let ethernet stabilize
+    lcd.setCursor(0, 1);  // Column 0, Row 1
+    lcd.print("Start UDP Client");
+
     if (udpClient.begin()) {
         Serial.println("🎉 UDP client ready!");
+        
+        lcd.setCursor(0, 1);  // Column 0, Row 1
+        lcd.print("UDP client ready!");
+        
+
     }
     else {
         Serial.println("❌ UDP client failed to start");
+        lcd.setCursor(0, 1);  // Column 0, Row 1
+        lcd.print("UDP Failure     ");
     }
 
     // Initialize the OverlappingLEDManager
@@ -140,10 +187,7 @@ void setup() {
     
     animationTimer.begin(isr_animationTimer, 200000); // 500ms interval for animation toggle
 
-    for (int i=0;i<numButtons;i++) {
-        buttons[i].attach(_buttonPins[i], INPUT_PULLUP);
-        buttons[i].interval(50); // 50ms debounce interval
-    }
+    
 
     //yeah this is our throw-away color.  The SetLEDColors function will ignore this color and leave the LED unchanged.
     noopColor.setRGB(1,2,3); 
@@ -172,6 +216,15 @@ void loop() {
             Serial.println(udpClient.getLeftCamTagID());
             Serial.print("Right Tag");
             Serial.println(udpClient.getRightCamTagID());
+
+            lcd.setCursor(0, 1);  // Column 0, Row 1
+            lcd.print("Tags:");
+            lcd.print(udpClient.getLeftCamTagID());
+
+            
+            lcd.print(",");
+            lcd.print(udpClient.getRightCamTagID());
+
            if (!bAutoScoring){
             for(int i=0;i<12;i++)
             {
@@ -500,15 +553,34 @@ void SetupEthernet(){
     byte mac[6] = {0x02, 0xFE, 0xED, 0x65, 0x74, 0x64};
     Serial.println("Starting Ethernet...");
     
-    if (Ethernet.begin(mac,15000,5000)) {
+    if (Ethernet.begin(mac,5000)) {
         Serial.println("✅ Ethernet configured via DHCP");
     } else {
         // Try static IP
         IPAddress ip(10, 65, 74, 100);  // Team 6574 static IP
-        IPAddress gateway(10, 65, 74, 1);
+        IPAddress gateway(10, 65, 74, 4);
         IPAddress subnet(255, 255, 255, 0);
         Ethernet.begin(mac, ip, gateway, gateway, subnet);
         Serial.println("✅ Ethernet configured with static IP");
+    }
+
+    // Attempt DHCP with timeout
+    unsigned long startTime = millis();
+    unsigned long timeout = 5000; // 5 second timeout
+    while (Ethernet.linkStatus() == LinkOFF) {
+        if (millis() - startTime > timeout) {
+        Serial.println("Ethernet cable not connected - continuing without network");
+        break;
+        }
+        delay(100);
+    }
+    
+    // Check if we got a connection
+    if (Ethernet.linkStatus() == LinkON) {
+        Serial.print("IP Address: ");
+        Serial.println(Ethernet.localIP());
+    } else {
+        Serial.println("Running in offline mode");
     }
     
     Serial.print("Local IP: ");

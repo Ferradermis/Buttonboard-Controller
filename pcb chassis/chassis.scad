@@ -6,25 +6,40 @@ w_plate=120;
 h_plate=120;
 r_plate=6;
 
-w_lcd=72.5;
-h_lcd=24.4;
-lcd_holes=[75.4,31.4];
-lcd_holes_y_offset=0.75;
+
 
 pcb_holes=[3.1*inch,3.45*inch];
 
 
 main();
 
+
+/*LCD 1602 Modules*/
+w_lcd=72.5;
+h_lcd=24.4;
+lcd_holes=[75.4,31.4];
+lcd_holes_y_offset=0.75;
+module lcd1602Mount(){
+    
+    translate([w_plate/2-lcd_holes[0]/2,h_plate/2-lcd_holes[1]/2 + lcd_holes_y_offset,0])
+        for(p=[[0,0,0],[0,lcd_holes[1],0],[lcd_holes[0],lcd_holes[1],0],[lcd_holes[0],0,0]])
+            translate(p)
+                cylinder(d=6,h=7);
+}
+module lcd1602MountNeg(){
+    translate([w_plate/2-lcd_holes[0]/2,h_plate/2-lcd_holes[1]/2 + lcd_holes_y_offset,1])
+        for(p=[[0,0,0],[0,lcd_holes[1],0],[lcd_holes[0],lcd_holes[1],0],[lcd_holes[0],0,0]])
+            translate(p)
+                cylinder(d=3,h=10);
+}
+/*END LCD 1602 Modules*/
+
 module main(){
     difference(){
         union(){
             roundcube([w_plate,h_plate,t_plate],r_plate);
 
-            translate([w_plate/2-lcd_holes[0]/2,h_plate/2-lcd_holes[1]/2 + lcd_holes_y_offset,0])
-                for(p=[[0,0,0],[0,lcd_holes[1],0],[lcd_holes[0],lcd_holes[1],0],[lcd_holes[0],0,0]])
-                    translate(p)
-                        cylinder(d=6,h=7);
+            lcd1602Mount();
 
             translate([w_plate/2-pcb_holes[0]/2,h_plate/2-pcb_holes[1]/2 ,0])
                 for(p=[[0,0,0],[0,pcb_holes[1],0],[pcb_holes[0],pcb_holes[1],0],[pcb_holes[0],0,0]])
@@ -37,10 +52,7 @@ module main(){
                 cube([w_lcd,h_lcd,10]);
             }
 
-            translate([w_plate/2-lcd_holes[0]/2,h_plate/2-lcd_holes[1]/2 + lcd_holes_y_offset,1])
-                for(p=[[0,0,0],[0,lcd_holes[1],0],[lcd_holes[0],lcd_holes[1],0],[lcd_holes[0],0,0]])
-                    translate(p)
-                        cylinder(d=3,h=10);
+            lcd1602MountNeg();
 
             translate([w_plate/2-pcb_holes[0]/2,h_plate/2-pcb_holes[1]/2 ,1])
                 for(p=[[0,0,0],[0,pcb_holes[1],0],[pcb_holes[0],pcb_holes[1],0],[pcb_holes[0],0,0]])

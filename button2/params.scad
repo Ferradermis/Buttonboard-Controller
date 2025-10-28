@@ -52,7 +52,7 @@ d_nut=od_housing+10;
 nut_sides=9;
 h_nut_rim=3;
 
-h_led_cap=10;
+h_led_cap=12;
 w_led_cap=w_pedestal+3;
 
 

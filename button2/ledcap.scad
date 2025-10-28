@@ -14,6 +14,8 @@ module main(){
             }
         }
         union(){
+            cylinder(d=4,h=25);
+        
             cylinder(d=d_switch_key,h=h_switch_key);
             translate([0,0,h_switch_key])
                 sphere(d=d_switch_key);

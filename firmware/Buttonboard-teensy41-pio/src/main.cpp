@@ -1,8 +1,12 @@
-#include <Arduino.h>
-#include <Adafruit_NeoPixel.h>
+// Add this to the top of your main.cpp (after other includes)
+#include "TeensyUDPClient.h"
+#include "NativeEthernet.h"
 #include <Bounce2.h>
-#include <NetworkTablesSubscriber.h>
-#include "EthernetConfig.h"
+#include <FastLED.h>
+#include <IntervalTimer.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
 
 #pragma region Button Pins
 #define PIN_BTN_01 0
@@ -46,31 +50,9 @@
 
 
 #define PIN_LED 13
-#define PIN_NEOPIXELS 37
 #define NUM_LEDS 23
-
-#define TEAM_NUMBER 6574
-
-
-// Robot telemetry state
-struct RobotTelemetry {
-    bool shooterReady;
-    bool intakeDeployed;
-    bool climbEngaged;
-    double shooterSpeed;
-    double intakePosition;
-    double batteryVoltage;
-    String autonomousMode;
-    bool fieldOriented;
-} robotData;
-
-//definition of void test_all_pixels()
-uint32_t HSVtoRGB(Adafruit_NeoPixel &strip, uint8_t h, uint8_t s, uint8_t v);
-void test_all_pixels();
-void testNeoPixels(Adafruit_NeoPixel &strip);
-void setupEthernet();
-void setupNetworkTables();
-void setupTelemetrySubscriptions();
+#define DATA_PIN 37
+#define STATES_PER_LED 4 // Each LED can have 8 animation states (on/off, or different colors)
 
 
 const uint8_t _buttonPins[] = {
@@ -83,109 +65,284 @@ const uint8_t _buttonPins[] = {
 
 const uint8_t numButtons = 23; //sizeof(_buttonPins) / sizeof(_buttonPins[0]);
 
-//arrays to group related buttons
-//reef buttons/leds, one will be lit at a time
-uint8_t _reefPositionButtons[] = {
-  0,1,2,3,4,5,6,7,8,9,10,11
-};
-//level buttons/leds, one at a time once more
-uint8_t _reefLevelButtons[] = {
-  12,13,14,15
-};
 
-
-Adafruit_NeoPixel pixels(NUM_LEDS, PIN_NEOPIXELS, NEO_GRB + NEO_KHZ800);
 
 Bounce buttons[numButtons];
 
-// Global objects
-EthernetConfig ethernet(TEAM_NUMBER);
-NetworkTablesSubscriber nt(TEAM_NUMBER);
-
-uint32_t cReef=pixels.Color(200,0,200);
-uint32_t cRed=pixels.Color(200,0,0);
-uint32_t cAlgae=pixels.Color(0,210,20);
-uint32_t cYellow=pixels.Color(200,200,0);
-uint32_t cGreen=pixels.Color(0,200,0);
-uint32_t cBlue=pixels.Color(0,0,200);
-
-uint32_t cClimberDeployed=pixels.Color(200,0,0);
-uint32_t cCliberGateClosed=pixels.Color(0,200,0);
-
-uint32_t cRedAlliance=pixels.Color(40,0,0);
-uint32_t cBlueAlliance=pixels.Color(0,0,40);
-
-uint32_t buttonColors[]={
-  cReef,cReef,cReef,cReef,cReef,cReef,cReef,cReef,
-  cReef,cReef,cReef,cReef,cReef,cReef,cReef,cReef,
-  cYellow,cAlgae,cAlgae,cYellow,cGreen,cYellow,cBlue
-};
+CRGB leds[NUM_LEDS];
+CRGB noopColor= CRGB::Black; // Default noop color
+CRGB allianceColor = CRGB::Black; // Default alliance color
+CRGB redAllianceColors[STATES_PER_LED]={CRGB::DarkRed, CRGB::Red, CRGB::DarkRed, CRGB::Black};
+CRGB blueAllianceColors[STATES_PER_LED]={CRGB::DarkBlue, CRGB::Blue, CRGB::DarkBlue, CRGB::Black};
+CRGB algaeColor=CRGB::SeaGreen;
 
 
+
+void SetupEthernet();
+void SetLEDColors(int ledIndex, std::initializer_list<CRGB> colors);
+void SetLEDColor(int ledIndex, CRGB color);
+void CheckButtonStates();
+void transferColors();
+void SetLEDColorFromTagId(int tagId, CRGB color);
+void SetLEDColorFromTagIdLeft(int tagId, CRGB color);
+void SetLEDColorFromTagIdRight(int tagId, CRGB color);
+
+void isr_animationTimer();
+volatile uint8_t animationFrame = 0; // Animation frame counter
+IntervalTimer animationTimer; // Timer for animations
+
+CRGB ledStates[NUM_LEDS * STATES_PER_LED];
+
+
+
+TeensyUDPClient udpClient(6574);// Your team number
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+uint32_t LastBatteryCheck=0;
+
+bool foundATag=false;
+bool bAutoScoring=false;
+bool bAutomated=false;
+bool bTeleop=false;
+bool bMatchTimeCountingDown=false;
+float lastMatchTime=0.0;
+
+// In your setup() function, replace the NetworkTables setup with:
 void setup() {
-  // put your setup code here, to run once:
-  // Initialize each button
-    for (uint8_t i = 0; i < numButtons; i++) {
-        buttons[i].attach(_buttonPins[i], INPUT_PULLUP);
-        buttons[i].interval(10); // 10ms debounce interval
-    }
 
-  pixels.begin();
-  pixels.clear();
-  pixels.show();
-
-  testNeoPixels(pixels);
-  //test_all_pixels();
-
-  /*
-  Serial.println("Initializing Ethernet...");
-  nt.enableDebug();
-  if (nt.begin()) {
-        Serial.println("Ethernet initialized successfully");
-        Serial.println("Local IP: " + nt.formatIPAddress(Ethernet.localIP()));
-        
-        // Attempt initial connection
-        if (nt.connect()) {
-            Serial.println("Connected to robot!");
-        } else {
-            Serial.println("Initial connection failed - will retry automatically");
-        }
-    } else {
-        Serial.println("Failed to initialize Ethernet!");
-    }
-*/
-    pinMode(PIN_LED, OUTPUT);
-
-    Serial.begin(9600);
+    Wire.begin();
+    // Initialize the LCD
+    lcd.init();
+    // Turn on the backlight
+    lcd.backlight();
     
-    int serialRetries=50;
-    while (!Serial && (serialRetries--)>0) {
-      delay(10);  // Wait for Serial to be ready
-    } 
+    
+    Serial.begin(115200);
+    while (!Serial && (millis() < 5000)) ; // wait for Serial to initialize (with timeout for non-USB serial)
+    Serial.println("Buttonboard starting up...");
+    lcd.setCursor(0, 0);  // Column 0, Row 0
+    lcd.print("Ferra Bttn Board");
+    
+    FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);
+    FastLED.setBrightness(192);
+    FastLED.clear();
+    FastLED.showColor(CRGB::DarkRed);
 
-    // Update button states
-  for (uint8_t i = 0; i < numButtons; i++) {
-    buttons[i].update();
-    Serial.print("Button ");
-    Serial.print(i + 1);
-    Serial.print("State: ");
-    Serial.println(buttons[i].read() ? "Released" : "Pressed");
-    if (buttons[i].read()) {
-      // If the button is pressed, turn on the corresponding LED
-      digitalWrite(PIN_LED, HIGH);
+
+    for (int i=0;i<numButtons;i++) {
+        buttons[i].attach(_buttonPins[i], INPUT_PULLUP);
+        buttons[i].interval(50); // 50ms debounce interval
     }
 
-  }
 
+    pinMode(PIN_LED, OUTPUT);
+    digitalWrite(PIN_LED, HIGH); 
+    
+    if(digitalRead(PIN_BTN_23)==HIGH){
+
+        lcd.setCursor(0, 1);  // Column 0, Row 1
+        lcd.print("Ethernet Startup");
+        SetupEthernet();
+        lcd.setCursor(0, 1);  // Column 0, Row 1
+        lcd.print("Ethernet Started");
+        lcd.setCursor(0, 0);
+        lcd.print(String(Ethernet.localIP()[0]));
+        lcd.print(".");
+        lcd.print(String(Ethernet.localIP()[1]));
+        lcd.print(".");
+        lcd.print(String(Ethernet.localIP()[2]));
+        lcd.print(".");
+        lcd.print(String(Ethernet.localIP()[3]));
+        lcd.print("         "); 
+    }
+    else{
+        lcd.setCursor(0, 1);  // Column 0, Row 1
+        lcd.print("Ethernet SKIPPED");
+    }
+
+    delay(1500); // Let ethernet stabilize
+    lcd.setCursor(0, 1);  // Column 0, Row 1
+    lcd.print("Start UDP Client");
+
+    if (udpClient.begin()) {
+        Serial.println("🎉 UDP client ready!");
+        
+        lcd.setCursor(0, 1);  // Column 0, Row 1
+        lcd.print("UDP client ready!");
+        
+
+    }
+    else {
+        Serial.println("❌ UDP client failed to start");
+        lcd.setCursor(0, 1);  // Column 0, Row 1
+        lcd.print("UDP Failure     ");
+    }
+
+    // Initialize the OverlappingLEDManager
+    for (int i=0;i<NUM_LEDS * STATES_PER_LED;i++) {
+        ledStates[i] = CRGB::Black; // Initialize all states to off
+    }
+    
+    
+    animationTimer.begin(isr_animationTimer, 200000); // 500ms interval for animation toggle
+
+    
+
+    //yeah this is our throw-away color.  The SetLEDColors function will ignore this color and leave the LED unchanged.
+    noopColor.setRGB(1,2,3); 
+    Joystick.X(512);
+    Joystick.Y(512);   
+    Joystick.Z(512);
+    Joystick.Zrotate(512);
+    Joystick.slider(512);
+    Joystick.sliderLeft(512);
+    Joystick.sliderRight(512);
+
+    digitalWrite(PIN_LED, LOW);
 }
 
-void loop() {
-  
 
-  // Update button states
-  for (uint8_t i = 0; i < numButtons; i++) {
+void loop() {
+
+    //check for messages from robot
+    udpClient.update();
+    // If anything has changed, update the state of the control board.
+    if (udpClient.hasChangedData()) {
+
+        foundATag=((udpClient.getLeftCamTagID()>0) || (udpClient.getRightCamTagID()>0));
+        if (foundATag) {
+            Serial.print("Left Tag ");
+            Serial.println(udpClient.getLeftCamTagID());
+            Serial.print("Right Tag");
+            Serial.println(udpClient.getRightCamTagID());
+
+            lcd.setCursor(0, 1);  // Column 0, Row 1
+            lcd.print("Tags:");
+            lcd.print(udpClient.getLeftCamTagID());
+
+            
+            lcd.print(",");
+            lcd.print(udpClient.getRightCamTagID());
+
+           if (!bAutoScoring){
+            for(int i=0;i<12;i++)
+            {
+                SetLEDColor(i,CRGB::Black);
+            }
+                SetLEDColorFromTagIdLeft(udpClient.getLeftCamTagID(),CRGB::Green);
+                SetLEDColorFromTagIdRight(udpClient.getRightCamTagID(),CRGB::Green);
+           }
+           transferColors();
+           FastLED.show();
+           Serial.println("TAG FOUND");
+        }
+        else{
+            for(int i=0;i<12;i++)
+            {
+                SetLEDColor(i,CRGB::Black);
+            }
+            transferColors();
+           FastLED.show();
+            Serial.println("TAG NOT FOUND");
+        }
+
+
+        if (udpClient.getAllianceColor() =="blue") {
+            allianceColor = CRGB::Blue;
+        } else if (udpClient.getAllianceColor() =="red") {
+            allianceColor = CRGB::Red;
+        }
+        else{
+            allianceColor = CRGB::Black; // Default if no alliance color set
+        }
+
+        if (udpClient.getMatchTimeRemaining()==-1.0){
+            bMatchTimeCountingDown=false;
+        } else if (udpClient.getMatchTimeRemaining()<lastMatchTime){
+            bMatchTimeCountingDown=true;
+        }
+        lastMatchTime=udpClient.getMatchTimeRemaining();
+
+        if (udpClient.getRobotMode()!="Teleop") {
+            
+                bAutomated=true;
+                bMatchTimeCountingDown=false;
+        }
+        else{
+            if (bAutomated){
+                bAutomated=false;
+                for(int i=0;i<numButtons;i++)
+                {
+                    SetLEDColor(i, CRGB::Black);
+                }
+            }
+
+            if(udpClient.getMatchTimeRemaining()<=21.0 && bMatchTimeCountingDown){
+                SetLEDColors(22, {CRGB::Red, CRGB::Black, CRGB::Red, CRGB::Black});
+            }
+
+        }
+        
+
+
+    }
+    
+    bAutomated=false;
+    if (bAutomated){
+        if (udpClient.getAllianceColor() =="blue") {
+            for(int i=0;i<numButtons;i++)
+            {
+                SetLEDColor(i, blueAllianceColors[(animationFrame + i) % STATES_PER_LED]); // Stagger animation by button index
+            }
+        } else if (udpClient.getAllianceColor() =="red") {
+            for(int i=0;i<numButtons;i++)
+            {
+                SetLEDColor(i, redAllianceColors[(animationFrame + i) % STATES_PER_LED]); // Stagger animation by button index
+            }
+        }
+        else{
+            for(int i=0;i<numButtons;i++)
+            {
+                SetLEDColor(i, CRGB::Black);
+            }
+        }
+    }
+
+    
+        CheckButtonStates();
+    
+            
+
+
+    //update the LED colors according to current animation frame
+
+    transferColors();
+
+    FastLED.show();
+
+    delay(0);
+}
+
+void transferColors(){
+    noInterrupts();
+    for (int i = 0; i < NUM_LEDS; i++) {
+        // Update each LED based on its current state
+        CRGB currentColor = ledStates[i * STATES_PER_LED + animationFrame];
+        FastLED.leds()[i] = currentColor;
+    }
+    interrupts();
+}
+
+void CheckButtonStates() {
+    bool warning=false;
+    for (uint8_t i = 0; i < numButtons; i++) {
     buttons[i].update();
     if (buttons[i].fell()) {
+        if(bAutomated){
+            //warning=true;
+            //break;
+        }
       //set PIN 13 LED for debug purposes
       digitalWrite(PIN_LED, HIGH);
 
@@ -195,41 +352,55 @@ void loop() {
       //set reef buttons to black, then set THIS reef button to purple.
       if (i<12){
         for(int j=0;j<12;j++){
-          pixels.setPixelColor(j,0,0,0);
+            SetLEDColors(j, {CRGB::Black, noopColor, CRGB::Black, noopColor});
+          
         }
-        pixels.setPixelColor(i,buttonColors[i]);
+        SetLEDColors(i, {CRGB::Purple, noopColor, CRGB::Purple, noopColor});
       }
 
-
-        //set level buttons to black, then set THIS level button to yellow.
-      if(i>=12 && i<16){
-        for(int j=12;j<16;j++){
-          pixels.setPixelColor(j,0,0,0);
+      if (i>=12 && i<16){
+        for (int j=12;j<16;j++){
+            SetLEDColor(j,CRGB::Black);
         }
-        pixels.setPixelColor(i,buttonColors[i]);
+        SetLEDColor(i,CRGB::Purple);
       }
-       
-      //set level buttons to black, then set THIS level button to yellow.
-      if(i>=16 && i<22){
+
+      
+      if (i>=16 && i<22){
+        //set level buttons to black, then set THIS level button to purple.
         for(int j=16;j<22;j++){
-          pixels.setPixelColor(j,0,0,0);
+
+            SetLEDColor(j, CRGB::Black);
+          
         }
-        pixels.setPixelColor(i,buttonColors[i]);
+        switch(i){
+            case 16:
+                SetLEDColor(i, CRGB::Blue);
+                break;
+            case 17:
+                SetLEDColor(i, algaeColor);
+                break;
+            case 18:
+                SetLEDColor(i, algaeColor);
+                break;
+            case 19:
+                SetLEDColor(i, CRGB::Yellow);
+                break;
+            case 20:
+                SetLEDColor(i, CRGB::Orange);
+                break;
+            case 21:
+                SetLEDColor(i, CRGB::Purple);
+                break;
+        }
+
       }
 
-      //climb button
-      if(i==22){
-        for(int j=22;j<23;j++){
-          pixels.setPixelColor(j,0,0,0);
-        }
-        pixels.setPixelColor(i,buttonColors[i]);
-        //nt.printStatus();
-      }
 
-      //write led states to leds
-      pixels.show();
 
+      
     }
+      
     if(buttons[i].rose()){
       // If the button is released, turn off the LED
       digitalWrite(PIN_LED, LOW);
@@ -238,240 +409,184 @@ void loop() {
       Joystick.button(i+1,false);
     }
   }
-
-  
-
-  
-
-
-  //nt.update();
-
-
-  delay(5);
+    if (warning){
+    //if we're automated, just turn off all buttons
+            for(int i=0;i<numButtons;i++)
+            {
+                SetLEDColor(i, CRGB::Orange);
+                
+            }
+            transferColors();
+            FastLED.show();
+            delay(50);
+            for(int i=0;i<numButtons;i++)
+            {
+                SetLEDColor(i, CRGB::Black);
+                
+            }
+            transferColors();
+            FastLED.show();
+            delay(50);
+            for(int i=0;i<numButtons;i++)
+            {
+                SetLEDColor(i, CRGB::Orange);
+                
+            }
+            transferColors();
+            FastLED.show();
+            delay(50);
+            for(int i=0;i<numButtons;i++)
+            {
+                SetLEDColor(i, CRGB::Black);
+                
+            }
+            transferColors();
+            FastLED.show();
+            
+        }
 }
 
 
-void test_all_pixels(){
-  int delaytime=20;
-
-  for(int i=0;i<NUM_LEDS;i++){
-    pixels.setPixelColor(i,255,0,0);
-    pixels.show();
-    delay(delaytime);
-  }
-  
-
-  for(int i=0;i<NUM_LEDS;i++){
-    pixels.setPixelColor(i,0,255,0);
-    pixels.show();
-    delay(delaytime);
-  }
-  
-  for(int i=0;i<NUM_LEDS;i++){
-    pixels.setPixelColor(i,0,0,255);
-    pixels.show();
-    delay(delaytime);
-  }
-
-  for(int i=0;i<NUM_LEDS;i++){
-    pixels.setPixelColor(i,0,0,0);
-    pixels.show();
-    delay(delaytime);
-  }
-
-  pixels.clear();
-  pixels.show();
-}
 
 
-// Helper function to convert HSV to RGB
-uint32_t HSVtoRGB(Adafruit_NeoPixel &strip, uint8_t h, uint8_t s, uint8_t v) {
-  uint8_t r, g, b;
-  uint8_t region = h / 43;
-  uint8_t remainder = (h - (region * 43)) * 6;
-  
-  uint8_t p = (v * (255 - s)) >> 8;
-  uint8_t q = (v * (255 - ((s * remainder) >> 8))) >> 8;
-  uint8_t t = (v * (255 - ((s * (255 - remainder)) >> 8))) >> 8;
-  
-  switch (region) {
-    case 0: r = v; g = t; b = p; break;
-    case 1: r = q; g = v; b = p; break;
-    case 2: r = p; g = v; b = t; break;
-    case 3: r = p; g = q; b = v; break;
-    case 4: r = t; g = p; b = v; break;
-    default: r = v; g = p; b = q; break;
-  }
-  
-  return strip.Color(r, g, b);
-}
 
-void testNeoPixels(Adafruit_NeoPixel &strip) {
-  uint16_t numPixels = strip.numPixels();
-  uint32_t startTime = millis();
-  
-  // Phase 1: Rainbow chase (1.5 seconds)
-  while (millis() - startTime < 1500) {
-    for (int i = 0; i < numPixels; i++) {
-      // Create rainbow effect with moving offset
-      uint8_t hue = ((i * 255 / numPixels) + (millis() / 10)) & 255;
-      strip.setPixelColor(i, HSVtoRGB(strip, hue, 255, 255));
-    }
-    strip.show();
-    delay(20);
-  }
-  
-  // Phase 2: Individual pixel sweep (1.5 seconds)
-  startTime = millis();
-  while (millis() - startTime < 1500) {
-    strip.clear();
-    int pos = ((millis() - startTime) * numPixels / 1500) % numPixels;
+void SetLEDColors(int ledIndex, std::initializer_list<CRGB> colors) {
+    if (ledIndex < 0 || ledIndex >= NUM_LEDS) return; // Out of bounds
     
-    // Bright white pixel with colorful trail
-    strip.setPixelColor(pos, strip.Color(255, 255, 255));
-    for (int i = 1; i <= 5 && pos - i >= 0; i++) {
-      uint8_t brightness = 255 - (i * 40);
-      uint8_t hue = (millis() / 20 + i * 40) & 255;
-      uint32_t color = HSVtoRGB(strip, hue, 255, brightness);
-      strip.setPixelColor(pos - i, color);
-    }
-    strip.show();
-    delay(30);
-  }
-  
-  // Phase 3: Color fills (1 second)
-  uint32_t colors[] = {
-    strip.Color(255, 0, 0),   // Red
-    strip.Color(0, 255, 0),   // Green  
-    strip.Color(0, 0, 255),   // Blue
-    strip.Color(255, 255, 0), // Yellow
-    strip.Color(255, 0, 255), // Magenta
-    strip.Color(0, 255, 255)  // Cyan
-  };
-  
-  for (int c = 0; c < 6; c++) {
-    strip.fill(colors[c]);
-    strip.show();
-    delay(166); // ~1 second total for all colors
-  }
-  
-  // Phase 4: Sparkle effect (1 second)
-  startTime = millis();
-  while (millis() - startTime < 1000) {
-    strip.clear();
-    
-    // Random sparkles
-    for (int i = 0; i < numPixels / 3; i++) {
-      int pixel = random(numPixels);
-      uint32_t color = HSVtoRGB(strip, random(255), 255, random(128, 255));
-      strip.setPixelColor(pixel, color);
-    }
-    strip.show();
-    delay(50);
-  }
-  
-  // Final fade out
-  for (int brightness = 255; brightness >= 0; brightness -= 5) {
-    strip.fill(strip.Color(brightness / 3, brightness / 3, brightness));
-    strip.show();
-    delay(20);
-  }
-  
-  strip.clear();
-  strip.show();
-}
-
-void setupEthernet() {
-    Serial.println("Starting Ethernet configuration...");
-    
-    // Try DHCP first, fallback to static team-based IP
-    if (ethernet.begin()) {
-        Serial.println("Ethernet configuration successful!");
-    } else {
-        Serial.println("Ethernet configuration failed!");
-        // Continue anyway - might work later
-    }
-    
-    // Optional: force static IP for competition
-    // ethernet.forceStatic();
-}
-
-void setupNetworkTables() {
-    // Set connection callback
-    nt.setConnectionCallback([](bool connected) {
-        if (connected) {
-            Serial.println("NT: Connected to robot - setting up subscriptions");
-            // Flash green when connected
-            //fill_solid(leds, NEOPIXEL_COUNT, CRGB::Green);
-            //FastLED.show();
-            delay(500);
+    int i = 0;
+    for (const CRGB& color : colors) {
+        if (i >= STATES_PER_LED) break; // Don't exceed array bounds
+        if (color == noopColor) {
+            // If color is noop, ignore
         } else {
-            Serial.println("NT: Disconnected from robot");
-            // Flash red when disconnected
-            //fill_solid(leds, NEOPIXEL_COUNT, CRGB::Red);
-            //FastLED.show();
-            delay(500);
+            // Otherwise, set to the specified color
+            ledStates[ledIndex * STATES_PER_LED + i] = color;
         }
-    });
+        i++;
+    }
     
-    // Subscribe to robot telemetry
-    setupTelemetrySubscriptions();
+}
+
+void SetLEDColor(int ledIndex, CRGB color) {
+    if (ledIndex < 0 || ledIndex >= NUM_LEDS) return; // Out of bounds
+    for (int i = 0; i < STATES_PER_LED; i++) {
+        ledStates[ledIndex * STATES_PER_LED + i] = color;
+    }
     
-    // Start NetworkTables connection using ethernet configuration
-    if (ethernet.isConnectionActive()) {
-        if (nt.begin(ethernet)) {
-            Serial.println("NetworkTables initialization started");
-        } else {
-            Serial.println("Failed to initialize NetworkTables");
-        }
-    } else {
-        Serial.println("Waiting for Ethernet connection before starting NetworkTables");
+}
+
+
+
+void SetLEDColorFromTagIdRight(int tagId, CRGB color){
+    switch(tagId){
+        case 21:
+        case 10:
+            SetLEDColor(0,CRGB::Green);
+            //SetLEDColor(1,CRGB::Green);
+            break;
+        case 22:
+        case 9:
+            SetLEDColor(2,CRGB::Green);
+            //SetLEDColor(3,CRGB::Green);
+            break;
+        case 17:
+        case 8:
+            SetLEDColor(4,CRGB::Green);
+            //SetLEDColor(5,CRGB::Green);
+            break;
+        case 18:
+        case 7:
+            SetLEDColor(6,CRGB::Green);
+            //SetLEDColor(7,CRGB::Green);
+            break;
+        case 19:
+        case 6:
+            SetLEDColor(8,CRGB::Green);
+           //SetLEDColor(9,CRGB::Green);
+            break;
+        case 20:
+        case 11:
+            SetLEDColor(10,CRGB::Green);
+            //SetLEDColor(11,CRGB::Green);
+            break;
     }
 }
 
-void setupTelemetrySubscriptions() {
-    // Shooter subsystem
-    nt.subscribeBoolean("shooter/ready", [](const String& key, bool value) {
-        robotData.shooterReady = value;
-        Serial.printf("Shooter ready: %s\n", value ? "YES" : "NO");
-    });
+void SetLEDColorFromTagIdLeft(int tagId, CRGB color){
+    switch(tagId){
+        case 21:
+        case 10:
+            //SetLEDColor(0,CRGB::Green);
+            SetLEDColor(1,CRGB::Green);
+            break;
+        case 22:
+        case 9:
+            //SetLEDColor(2,CRGB::Green);
+            SetLEDColor(3,CRGB::Green);
+            break;
+        case 17:
+        case 8:
+            //SetLEDColor(4,CRGB::Green);
+            SetLEDColor(5,CRGB::Green);
+            break;
+        case 18:
+        case 7:
+            //SetLEDColor(6,CRGB::Green);
+            SetLEDColor(7,CRGB::Green);
+            break;
+        case 19:
+        case 6:
+            //SetLEDColor(8,CRGB::Green);
+            SetLEDColor(9,CRGB::Green);
+            break;
+        case 20:
+        case 11:
+            //SetLEDColor(10,CRGB::Green);
+            SetLEDColor(11,CRGB::Green);
+            break;
+    }
+}
+
+
+void SetupEthernet(){
+    // Simple ethernet setup
+    byte mac[6] = {0x02, 0xFE, 0xED, 0x65, 0x74, 0x64};
+    Serial.println("Starting Ethernet...");
     
-    nt.subscribeNumber("shooter/speed", [](const String& key, double value) {
-        robotData.shooterSpeed = value;
-    });
-    
-    // Intake subsystem
-    nt.subscribeBoolean("intake/deployed", [](const String& key, bool value) {
-        robotData.intakeDeployed = value;
-        Serial.printf("Intake deployed: %s\n", value ? "YES" : "NO");
-    });
-    
-    nt.subscribeNumber("intake/position", [](const String& key, double value) {
-        robotData.intakePosition = value;
-    });
-    
-    // Climbing subsystem
-    nt.subscribeBoolean("climb/engaged", [](const String& key, bool value) {
-        robotData.climbEngaged = value;
-        Serial.printf("Climb engaged: %s\n", value ? "YES" : "NO");
-    });
-    
-    // System telemetry
-    nt.subscribeNumber("system/batteryVoltage", [](const String& key, double value) {
-        robotData.batteryVoltage = value;
-        if (value < 11.5) {
-            Serial.printf("WARNING: Low battery voltage: %.1fV\n", value);
+    if (Ethernet.begin(mac,5000)) {
+        Serial.println("✅ Ethernet configured via DHCP");
+    } else {
+        // Try static IP
+        IPAddress ip(10, 65, 74, 100);  // Team 6574 static IP
+        IPAddress gateway(10, 65, 74, 4);
+        IPAddress subnet(255, 255, 255, 0);
+        Ethernet.begin(mac, ip, gateway, gateway, subnet);
+        Serial.println("✅ Ethernet configured with static IP");
+    }
+
+    // Attempt DHCP with timeout
+    unsigned long startTime = millis();
+    unsigned long timeout = 5000; // 5 second timeout
+    while (Ethernet.linkStatus() == LinkOFF) {
+        if (millis() - startTime > timeout) {
+        Serial.println("Ethernet cable not connected - continuing without network");
+        break;
         }
-    });
+        delay(100);
+    }
     
-    // Autonomous mode
-    nt.subscribeString("auto/selectedMode", [](const String& key, const String& value) {
-        robotData.autonomousMode = value;
-        Serial.printf("Auto mode selected: %s\n", value.c_str());
-    });
+    // Check if we got a connection
+    if (Ethernet.linkStatus() == LinkON) {
+        Serial.print("IP Address: ");
+        Serial.println(Ethernet.localIP());
+    } else {
+        Serial.println("Running in offline mode");
+    }
     
-    // Drive configuration
-    nt.subscribeBoolean("drive/fieldOriented", [](const String& key, bool value) {
-        robotData.fieldOriented = value;
-    });
+    Serial.print("Local IP: ");
+    Serial.println(Ethernet.localIP());
+}
+
+void isr_animationTimer(){
+    animationFrame = ++animationFrame % STATES_PER_LED; // Toggle frame 0 to STATES_PER_LED-1
 }

@@ -7,7 +7,6 @@ h_plate=120;
 r_plate=6;
 
 
-
 pcb_holes=[3.1*inch,3.45*inch];
 
 

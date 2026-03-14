@@ -14,6 +14,8 @@ _arcade_button_offset=3;
 
 _housing_h=4+_arcade_button_offset;
 
+
+
 module arcade_switch_housing(){
     translate([-_housing_x/2,-_housing_y/2,h_housing-_housing_h])
         cube([_housing_x,_housing_y,_housing_h]);
@@ -24,6 +26,7 @@ module arcade_switch(){
 }
 
 module main(){
+    h_housing=16.5;
     difference(){
         union(){
             iso_thread(m=od_housing,l=h_housing,p=tpitch);
@@ -33,60 +36,23 @@ module main(){
 
             
             
+            
 
         }
         union(){
+            cylinder(d1=20,d2=19,h=1);
+            translate([0,0,h_housing-1])
+            cylinder(d1=19.3,d2=20,h=1);
 
-            cylinder(d=id_housing,h=h_housing-3);
-
-            arcade_switch();
-
-            intersection(){
-                cylinder(d=id_housing,h=h_housing);
-                translate([-w_wire_notch/2,-od_housing/2,0])
-                    cube([w_wire_notch,od_housing,h_housing]);
-
-            }
-
-        }
-
-        difference(){
-            union(){
-                arcade_switch_housing();
-            }
-            union(){
-                cylinder(d=id_housing,h=h_housing-3);
-
-            arcade_switch();
-
-            intersection(){
-                cylinder(d=id_housing,h=h_housing);
-                translate([-w_wire_notch/2,-od_housing/2,0])
-                    cube([w_wire_notch,od_housing,h_housing]);
-
-            }
-            }
-        }
-    }
-
-    
-
-
-    //button guides
-    difference(){
-        union(){
-            intersection(){
-                cylinder(d=id_housing,h=h_housing);
-                translate([-od_housing/2,-w_housing_guide/2,0])
-                    cube([od_housing,w_housing_guide,h_housing]);
-            }
-        }
-        union(){
-            cylinder(d=id_housing,h=4);
+            translate([0,0,1])
+            iso_thread(m=19.6,l=h_housing+2,p=1);
+            
             translate([0,0,4])
-                cylinder(d1=id_housing,d2=id_housing-2 * w_housing_guide,h=w_housing_guide);
-            cylinder(d=id_housing-2 * w_housing_guide,h=h_housing);
+                cylinder(d=24,h=100);
+
         }
+
+        
     }
 
 }

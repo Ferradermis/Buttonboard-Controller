@@ -26,7 +26,7 @@ module arcade_switch(){
 }
 
 module main(){
-    h_housing=16.5;
+    h_housing=20;
     difference(){
         union(){
             iso_thread(m=od_housing,l=h_housing,p=tpitch);
@@ -45,7 +45,7 @@ module main(){
             cylinder(d1=19.3,d2=20,h=1);
 
             translate([0,0,1])
-            iso_thread(m=19.6,l=h_housing+2,p=1);
+            iso_thread(m=19.5,l=h_housing+2,p=1);
             
             translate([0,0,4])
                 cylinder(d=24,h=100);

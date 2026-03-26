@@ -42,8 +42,10 @@ void transferColors();
 void RunLEDTestAnimation();
 
 void isr_animationTimer();
+void isr_brightnessTimer();
 volatile uint8_t animationFrame = 0; // Animation frame counter
 IntervalTimer animationTimer; // Timer for animations
+IntervalTimer brightnessTimer; // Timer for brightness adjustments
 
 CRGB ledStates[NUM_LEDS * STATES_PER_LED];
 
@@ -101,7 +103,8 @@ void setup() {
     
     
     animationTimer.begin(isr_animationTimer, 200000); // 200ms interval for animation toggle
-
+    brightnessTimer.begin(isr_brightnessTimer, 20000); // 50ms interval for brightness adjustment
+    
     for (int i=0;i<numButtons;i++) {
         buttons[i].attach(_buttonPins[i], INPUT_PULLUP);
         buttons[i].interval(50); // 50ms debounce interval
@@ -123,75 +126,7 @@ void setup() {
 
 void loop() {
 
-    //check for messages from robot
-    // udpClient.update();
-    // // If anything has changed, update the state of the control board.
-    // if (udpClient.hasChangedData()) {
-
-        
-
-
-    //     if (udpClient.getAllianceColor() =="blue") {
-    //         allianceColor = CRGB::Blue;
-    //     } else if (udpClient.getAllianceColor() =="red") {
-    //         allianceColor = CRGB::Red;
-    //     }
-    //     else{
-    //         allianceColor = CRGB::Black; // Default if no alliance color set
-    //     }
-
-    //     if (udpClient.getMatchTimeRemaining()==-1.0){
-    //         bMatchTimeCountingDown=false;
-    //     } else if (udpClient.getMatchTimeRemaining()<lastMatchTime){
-    //         bMatchTimeCountingDown=true;
-    //     }
-    //     lastMatchTime=udpClient.getMatchTimeRemaining();
-
-    //     if (udpClient.getRobotMode()!="Teleop") {
-            
-    //             bAutomated=true;
-    //             bMatchTimeCountingDown=false;
-    //     }
-    //     else{
-    //         if (bAutomated){
-    //             bAutomated=false;
-    //             for(int i=0;i<numButtons;i++)
-    //             {
-    //                 SetLEDColor(i, CRGB::Black);
-    //             }
-    //         }
-
-    //         if(udpClient.getMatchTimeRemaining()<=21.0 && bMatchTimeCountingDown){
-    //             SetLEDColors(22, {CRGB::Red, CRGB::Black, CRGB::Red, CRGB::Black});
-    //         }
-
-    //     }
-        
-
-
-    // }
     
-    // //bAutomated=false;
-    // if (bAutomated){
-    //     if (udpClient.getAllianceColor() =="blue") {
-    //         for(int i=0;i<numButtons;i++)
-    //         {
-    //             SetLEDColor(i, blueAllianceColors[(animationFrame + i) % STATES_PER_LED]); // Stagger animation by button index
-    //         }
-    //     } else if (udpClient.getAllianceColor() =="red") {
-    //         for(int i=0;i<numButtons;i++)
-    //         {
-    //             SetLEDColor(i, redAllianceColors[(animationFrame + i) % STATES_PER_LED]); // Stagger animation by button index
-    //         }
-    //     }
-    //     else{
-    //         for(int i=0;i<numButtons;i++)
-    //         {
-    //             SetLEDColor(i, CRGB::Black);
-    //         }
-    //     }
-    // }
-
     
     CheckButtonStates();
     
@@ -274,6 +209,18 @@ void SetLEDColor(int ledIndex, CRGB color) {
 
 void isr_animationTimer(){
     animationFrame = ++animationFrame % STATES_PER_LED; // Toggle frame 0 to STATES_PER_LED-1
+}
+
+void isr_brightnessTimer() {
+    static float angle = 0.0;
+    angle += 0.1; // Increment angle for smooth sinusoidal variation
+    if (angle > 2 * PI) {
+        angle -= 2 * PI;
+    }
+
+    float brightnessFactor = 200 + 30 * sin(angle); // Sinusoidal brightness variation
+    FastLED.setBrightness(static_cast<uint8_t>(brightnessFactor));
+    FastLED.show();
 }
 
 // A short, visually pleasing LED test sequence to verify FastLED wiring and LEDs.
